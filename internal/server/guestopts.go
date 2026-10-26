@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/http"
@@ -142,6 +143,13 @@ var optionKeys = map[string]*regexp.Regexp{
 	"cpuunits":     regexp.MustCompile(`^\d{1,6}$`),
 	"cmode":        regexp.MustCompile(`^(tty|console|shell)$`),
 	"hotplug":      regexp.MustCompile(`^[a-z,]{0,64}$`),
+	// Cloud-Init
+	"ciuser":     regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,31}$`),
+	"cipassword": regexp.MustCompile(`^[^\n]{1,128}$`),
+	"sshkeys":    regexp.MustCompile(`^[A-Za-z0-9%._+=/@-]+$`),
+	"ipconfig0":  regexp.MustCompile(`^(ip=(dhcp|[0-9./]+)(,gw=[0-9.]+)?)?(,?ip6=(dhcp|auto|[0-9a-fA-F:/]+)(,gw6=[0-9a-fA-F:]+)?)?$`),
+	"citype":     regexp.MustCompile(`^(nocloud|configdrive2|opennebula)$`),
+	"ciupgrade":  regexp.MustCompile(`^[01]$`),
 }
 
 // enrichConfig completa a resposta de /config com rede, dispositivos, opções
@@ -193,9 +201,9 @@ func enrichConfig(cfg *guestConfig, kind string, raw map[string]any) {
 	slices.SortFunc(cfg.Devices, func(x, y deviceView) int { return strings.Compare(x.Key, y.Key) })
 }
 
-func (s *Server) rawConfig(r *http.Request, a pve.Auth, g pve.Resource) (map[string]string, error) {
+func (s *Server) rawConfig(ctx context.Context, a pve.Auth, g pve.Resource) (map[string]string, error) {
 	var raw map[string]any
-	if err := s.pve.Get(r.Context(), &a, cfgPath(g), nil, &raw); err != nil {
+	if err := s.pve.Get(ctx, &a, cfgPath(g), nil, &raw); err != nil {
 		return nil, err
 	}
 	out := map[string]string{}
@@ -267,7 +275,7 @@ func (s *Server) handleGuestNet(w http.ResponseWriter, r *http.Request, a pve.Au
 		writeErr(w, http.StatusBadRequest, "bridge, MAC ou VLAN inválidos")
 		return
 	}
-	raw, err := s.rawConfig(r, a, g)
+	raw, err := s.rawConfig(r.Context(), a, g)
 	if err != nil {
 		writePVEErr(w, err)
 		return
@@ -441,7 +449,7 @@ func (s *Server) handleGuestDevice(w http.ResponseWriter, r *http.Request, a pve
 		writeErr(w, http.StatusBadRequest, "dispositivo não suportado nesse tipo de guest")
 		return
 	}
-	raw, err := s.rawConfig(r, a, g)
+	raw, err := s.rawConfig(r.Context(), a, g)
 	if err != nil {
 		writePVEErr(w, err)
 		return
@@ -511,7 +519,7 @@ func (s *Server) handleDiskOptions(w http.ResponseWriter, r *http.Request, a pve
 		writeErr(w, http.StatusBadRequest, "json inválido")
 		return
 	}
-	raw, err := s.rawConfig(r, a, g)
+	raw, err := s.rawConfig(r.Context(), a, g)
 	if err != nil {
 		writePVEErr(w, err)
 		return

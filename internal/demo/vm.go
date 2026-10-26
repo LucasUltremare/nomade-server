@@ -31,6 +31,14 @@ func (s *Server) routesVM(mux *http.ServeMux) {
 		mux.HandleFunc("DELETE "+g+"/snapshot/{snap}", s.auth(s.snapDelete))
 		mux.HandleFunc("POST "+g+"/clone", s.auth(s.clone))
 		mux.HandleFunc("POST "+g+"/template", s.auth(s.makeTemplate))
+		mux.HandleFunc("GET "+g+"/status/current", s.auth(func(w http.ResponseWriter, r *http.Request) {
+			id := s.vmidOf(r)
+			if !s.hasGuest(id) {
+				fail(w, 500, "no such guest")
+				return
+			}
+			reply(w, map[string]any{"status": s.statusOf(id), "vmid": id})
+		}))
 		mux.HandleFunc("DELETE "+g, s.auth(s.destroy))
 	}
 	mux.HandleFunc("POST /api2/json/nodes/{node}/qemu/{vmid}/vncproxy", s.auth(s.vncproxy))

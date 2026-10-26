@@ -21,40 +21,34 @@ Then open `https://<host-ip>:8443` and sign in with your Proxmox account (`root@
 | Path | What it is |
 |---|---|
 | `/usr/local/bin/mia` | binary |
-| `/etc/mia/mia.env` | config (port, API URL, certificate) |
-| `/var/lib/mia` | per-user favorites, Tailscale auth key, app catalog cache, generated certificate |
+| `/etc/mia/mia.env` | config (port, API URL, certificate, API token for scheduled jobs) |
+| `/var/lib/mia` | per-user favorites, Tailscale auth key, scheduled jobs, app catalog cache, generated certificate |
 | `journalctl -u mia -f` | logs |
+
+Scheduled jobs run while nobody is logged in, so the installer creates a `mia@pve` user with a limited `MiaJobs` role and an API token for them. Uninstalling removes both.
 
 Unattended install: `MIA_YES=1 bash install.sh install` (also `update` and `uninstall`). Pin a version with `MIA_VERSION=v0.1.0`; change the port with `MIA_PORT=9443`.
 
 ## What's there
 
-- **Overview**: average cluster load compared with the previous period (24h, 7d, 30d), CPU distribution across all guests with the peak highlighted, CPU and RAM trend with backup windows (taken from `vzdump` tasks) and which guests drove the peak.
-- **Node panel**: CPU, load, memory, uptime, processor, IP, ZFS pool and guests, plus the node shell.
-- **Console**: node shell and LXC consoles (xterm.js over Proxmox's own `termproxy`) and VM screens (noVNC over `vncproxy`), all in the browser, proxied by Mia with the user's ticket.
-- **Apps**: the [Proxmox VE Helper-Scripts](https://community-scripts.org) catalog (~700 apps), with search and categories. Installing runs the script in the node console so you watch it live and can answer its prompts. CPU, RAM and disk come pre-filled from the script's defaults.
-- **New LXC**: template (downloaded on the fly if needed), resources, storage, bridge, VLAN, DHCP or static IP, password or SSH key, nesting and `/dev/net/tun`, with the task log streamed live.
-- **Guests**: VM and LXC lists; detail view with start, shutdown, reboot and force stop (with confirmation), console, clone, convert to template (and create from template), delete (typing the name to confirm), favorites, and tabs for:
-  - **Charts**: CPU, memory, network and disk over 1h, 24h, 7d or 30d;
-  - **Hardware**: CPU, RAM and swap; disks and mount points (grow, add, move to another storage, detach, delete unused); the VM's CD/DVD ISO;
-  - **Snapshots**: take (with RAM for running VMs), roll back, delete;
-  - **Firewall**: the guest's own rules.
-- **New VM**: from an ISO, with presets for Linux, Windows 11 (UEFI, TPM 2.0, Secure Boot), Windows 10 and others.
-- **Migration**: move one guest or several from a node to another (VMs live; LXCs restart on the target).
-- **Health**: one list of what needs attention (SMART failures and SSD wear, degraded ZFS pools, stopped PVE services, pending updates, certificates about to expire, storage filling up, nodes offline, guests with no backup job), plus disk, service, update and certificate details. Updates can be run in the node console.
-- **Backups**: scheduled jobs (create, edit, enable/disable, run now, retention) and, per guest, the last backup found and whether a job covers it.
-- **Firewall**: datacenter, node and guest levels; rules with ready-made services (SSH, HTTP...), and a warning plus one-click rule if enabling the datacenter firewall would lock you out of Mia's port.
-- **Tasks**: everything that ran or is running in the cluster, with logs and stop.
-- **Notifications**: the bell shows health issues and tasks that failed in the last 24h.
-- **Network**: interfaces per node, new bridges and VLANs, pending-changes diff with apply/revert, current traffic.
-- **VPN · Tailscale**: save an auth key once, then
-  - **gateway**: one click creates a small Debian LXC running Tailscale as a subnet router for the bridge's network, so everything on the LAN (including what you add later) is reachable over the VPN;
-  - **per-app address**: from the app store (tick *Publish on Tailscale*) or any running LXC (*Expose on Tailscale*), Mia installs Tailscale inside the container and publishes the app with `tailscale serve` at `https://<name>.<tailnet>.ts.net`.
-- **Storage**: every storage with usage; ISOs, templates, backups and disks; upload with progress, download from URL, delete, and restore a backup into a new guest.
-- **Cluster backup** (`⌘B`), **search** (`/` or `⌘K`), light and dark themes, mobile layout.
-- **Updates**: Mia checks GitHub for a newer release and shows it in the sidebar. `root@pam` can update with one click (a systemd path unit runs the installer as root; Mia itself stays unprivileged).
+Everything the Proxmox web UI does (see [docs/ROADMAP.md](docs/ROADMAP.md) for the exact parity list and the few gaps), plus extras. In short:
 
-Things that run as root on the node (app installs, Tailscale) go through the node console, so they need `root@pam` and you can read every command before and while it runs.
+- **My apps**: your self-hosted apps as a home page, with icons, status and local + Tailscale links. **Update all** updates every LXC (or every community-scripts app) in one console run.
+- **Overview**: cluster load compared with the previous period, CPU distribution across guests, CPU and RAM trend with backup windows and which guests drove the peak.
+- **Nodes**: summary, charts, updates (the PVE upgrade terminal), repositories (one click to no-subscription), disks (SMART, wipe, GPT, create ZFS / LVM / LVM-thin / directory), DNS, hosts, time zone, Wake-on-LAN, notes, certificates (custom and ACME), syslog, subscription, bulk start/stop.
+- **Guests** (VM and LXC): power actions incl. suspend, hibernate and reset; console (xterm.js or noVNC); charts; full hardware (CPU type, balloon, BIOS, machine, display, disks and mount points, NICs, USB, PCI, serial, device passthrough); network and DNS; options; snapshots; backups and restore; task history; firewall; clone, template, migrate, delete. VMs also get **Cloud-Init** and the **QEMU monitor**.
+- **New VM / LXC**: VM from an ISO (presets incl. Windows 11 with UEFI and TPM), **VM from a cloud image** (Debian/Ubuntu, ready in a minute with user, SSH key and network via Cloud-Init), **import OVA or ESXi VMs**, LXC from a template downloaded on the fly.
+- **Apps**: the [Proxmox VE Helper-Scripts](https://community-scripts.org) catalog (~700 apps). Installing runs the script in the node console so you watch it live and can answer its prompts. **Stacks** install a whole kit in one go (media, smart home, network, photos and documents, dev) with a shared folder between the apps and optional Tailscale addresses.
+- **Storage**: every storage with usage and content; upload with progress, download from URL, restore. **Shared folders**: one host folder mounted in several LXCs, with the unprivileged ID mapping handled for you.
+- **Easy GPU**: one button passes the node's iGPU (`/dev/dri`) to an LXC for Jellyfin or Plex transcoding.
+- **Datacenter**: options and notes, cluster create/join, storages (dir, NFS, SMB, PBS, ZFS, LVM, BTRFS, ESXi), users, groups, API tokens, two-factor (TOTP and recovery keys), roles, permissions, realms, pools, HA, replication, SDN, firewall groups / aliases / IPSets, notifications, ACME, device mappings, metric servers, Ceph (install, init, monitors, managers, OSDs, pools, CephFS), cluster log.
+- **Scheduled jobs**: turn guests on and off on a schedule, take **automatic snapshots** with retention, and run an **automatic restore test** that restores the latest backup into a throwaway guest, boots it, checks it and deletes it.
+- **Health**: one list of what needs attention (SMART and SSD wear, degraded ZFS, stopped services, pending updates, expiring certificates, storage filling up, nodes offline, guests with no backup), plus a notifications bell.
+- **Backups, firewall, tasks, network** (bridges, VLANs, pending diff with apply/revert), with a guard that warns before the datacenter firewall locks you out of Mia.
+- **VPN · Tailscale**: a one-click gateway LXC that routes your LAN, and per-app HTTPS addresses at `https://<name>.<tailnet>.ts.net`.
+- **Search** (`/` or `⌘K`), cluster backup (`⌘B`), light and dark themes, mobile layout, and one-click self-update.
+
+Things that run as root on the node (app installs, stacks, shared folders, GPU, Tailscale) go through the node console, so they need `root@pam` and you can read every command before and while it runs.
 
 ## Development
 
@@ -67,7 +61,7 @@ make dev         # demo backend + Vite with hot reload at http://localhost:5173
 make test
 ```
 
-`--demo` starts a fake Proxmox (`internal/demo`) with 3 nodes, 16 guests and synthetic metrics, plus a fake shell, networks, storages and tasks, so every screen works locally (the app catalog is the real one). Any username and password work (except the password `errada`); a username starting with `tfa` asks for a second factor, and the code is `123456`.
+`--demo` starts a fake Proxmox (`internal/demo`) with 3 nodes, 16 guests and synthetic metrics, plus a fake shell, networks, storages and tasks, so every screen works locally (the app catalog is the real one). Any username and password work (except the password `errada`); a username starting with `tfa` asks for a second factor, and the code is `123456`. Set `MIA_DEMO_CEPH=1` to get a healthy Ceph cluster in the demo.
 
 ```
 cmd/mia/            entry point (mia serve, mia version)

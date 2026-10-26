@@ -34,4 +34,5 @@ export const IconBackup = base(<><path d="M4 7.5h12v8.5H4z" /><path d="M3 4h14v3
 export const IconApps = base(<><rect x="3.5" y="3.5" width="5" height="5" rx="1.2" /><rect x="11.5" y="3.5" width="5" height="5" rx="1.2" /><rect x="3.5" y="11.5" width="5" height="5" rx="1.2" /><path d="M14 11.5v5M11.5 14h5" /></>);
 export const IconDownload = base(<path d="M10 3.5v9M6.5 9 10 12.5 13.5 9M4 16h12" />);
 export const IconGrid = base(<><rect x="3.5" y="3.5" width="5.5" height="5.5" rx="1.5" /><rect x="11" y="3.5" width="5.5" height="5.5" rx="1.5" /><rect x="3.5" y="11" width="5.5" height="5.5" rx="1.5" /><rect x="11" y="11" width="5.5" height="5.5" rx="1.5" /></>);
+export const IconCluster = base(<><circle cx="10" cy="4.5" r="2" /><circle cx="4.5" cy="14.5" r="2" /><circle cx="15.5" cy="14.5" r="2" /><path d="M9 6.2 5.6 12.8M11 6.2l3.4 6.6M6.5 14.5h7" /></>);
 export const IconMinimize = base(<path d="M5 14h10" />);

@@ -29,6 +29,7 @@ type Config struct {
 	Version string
 	Demo    bool
 	AppsURL string // API do catálogo do community-scripts (vazio = a pública)
+	Token   string // token de API da Mia pros agendamentos ("mia@pve!mia=…")
 	// Certificados TLS; vazio = tenta os do PVE e, se não der, gera um próprio.
 	CertFile string
 	KeyFile  string
@@ -45,6 +46,7 @@ type Server struct {
 	apps     *appStore
 	updater  *updater
 	prober   *prober
+	sched    *scheduler
 }
 
 func New(cfg Config) (*Server, error) {
@@ -56,7 +58,7 @@ func New(cfg Config) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Server{
+	srv := &Server{
 		cfg:      cfg,
 		pve:      c,
 		sessions: newSessionStore(),
@@ -67,7 +69,9 @@ func New(cfg Config) (*Server, error) {
 		apps:     newAppStore(cfg.AppsURL, cfg.DataDir),
 		updater:  newUpdater(cfg.Version, cfg.DataDir),
 		prober:   newProber(),
-	}, nil
+	}
+	srv.sched = &scheduler{s: srv, running: map[string]bool{}}
+	return srv, nil
 }
 
 func (s *Server) Run(ctx context.Context) error {
@@ -92,7 +96,8 @@ func (s *Server) Run(ctx context.Context) error {
 		defer cancel()
 		srv.Shutdown(shut)
 	}()
-	slog.Info("mia no ar", "listen", s.cfg.Listen, "pve", s.cfg.PVEURL, "demo", s.cfg.Demo)
+	go s.sched.loop(ctx)
+	slog.Info("mia no ar", "listen", s.cfg.Listen, "pve", s.cfg.PVEURL, "demo", s.cfg.Demo, "token", s.cfg.Token != "")
 	if err := srv.ListenAndServeTLS("", ""); !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
@@ -198,6 +203,13 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/tailscale/command", s.authed(s.handleTailscaleCommand))
 	mux.HandleFunc("GET /api/update", s.authed(s.handleUpdateInfo))
 	mux.HandleFunc("POST /api/update", s.authed(s.handleUpdateRun))
+
+	s.fwdRoutes(mux, mustRoutes(pveRoutes()))
+	mux.HandleFunc("GET /api/shared-folders", s.authed(s.handleSharedFolders))
+	mux.HandleFunc("GET /api/jobs", s.authed(s.handleJobsList))
+	mux.HandleFunc("POST /api/jobs", s.authed(s.handleJobsSave))
+	mux.HandleFunc("DELETE /api/jobs/{id}", s.authed(s.handleJobsDelete))
+	mux.HandleFunc("POST /api/jobs/{id}/run", s.authed(s.handleJobsRun))
 
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "rota não existe")

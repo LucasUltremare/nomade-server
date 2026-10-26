@@ -35,6 +35,7 @@ func main() {
 	flag.StringVar(&cfg.CertFile, "cert", env("MIA_TLS_CERT", ""), "certificado TLS (padrão: o do pveproxy)")
 	flag.StringVar(&cfg.KeyFile, "key", env("MIA_TLS_KEY", ""), "chave TLS")
 	flag.BoolVar(&cfg.Demo, "demo", env("MIA_DEMO", "") == "1", "sobe um Proxmox falso com dados de exemplo")
+	cfg.Token = os.Getenv("MIA_PVE_TOKEN") // fica fora das flags pra não aparecer no ps
 	flag.Parse()
 
 	if cfg.Demo {

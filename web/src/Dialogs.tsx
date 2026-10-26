@@ -11,6 +11,7 @@ import { GuestBackups, GuestTasks } from "./GuestHistory";
 import { GuestNetwork, GuestOptions } from "./GuestNetwork";
 import { CloneDialog, DestroyDialog } from "./GuestManage";
 import { Snapshots } from "./Snapshots";
+import { GuestAdvanced } from "./Extras";
 import { MigrateDialog } from "./Migrate";
 import { pveURL } from "./NodePanel";
 import { navigate } from "./router";
@@ -139,7 +140,7 @@ export function GuestDialog() {
         {g.template ? " · template" : ""}
       </div>
       <div className="seg dialog-tabs" role="tablist">
-        {GUEST_TABS.filter(([, , onTemplate]) => onTemplate || !g.template).map(([k, label]) => (
+        {GUEST_TABS.filter(([k, , onTemplate]) => (onTemplate || !g.template) && (k !== "avancado" || g.type === "qemu")).map(([k, label]) => (
           <button key={k} role="tab" aria-pressed={tab === k} onClick={() => setTab(k)}>{label}</button>
         ))}
       </div>
@@ -150,6 +151,7 @@ export function GuestDialog() {
       {tab === "graficos" && <GuestCharts g={g} />}
       {tab === "hardware" && <GuestHardware g={g} />}
       {tab === "snapshots" && <Snapshots g={g} />}
+      {tab === "avancado" && <GuestAdvanced g={g} />}
       {tab === "firewall" && <FirewallPanel scope={{ scope: "guest", kind: g.type, vmid: g.vmid }} />}
       {tab === "resumo" && <>
 
@@ -274,13 +276,13 @@ function ExposeForm({ g, onDone }: { g: Guest; onDone: () => void }) {
   );
 }
 
-type GuestTab = "resumo" | "graficos" | "hardware" | "rede" | "opcoes" | "snapshots" | "backups" | "tarefas" | "firewall";
+type GuestTab = "resumo" | "graficos" | "hardware" | "rede" | "opcoes" | "snapshots" | "backups" | "tarefas" | "firewall" | "avancado";
 
 // [aba, rótulo, aparece em template]
 const GUEST_TABS: [GuestTab, string, boolean][] = [
   ["resumo", "Resumo", true], ["graficos", "Gráficos", false], ["hardware", "Hardware", true], ["rede", "Rede", true],
   ["opcoes", "Opções", true], ["snapshots", "Snapshots", false], ["backups", "Backups", false], ["tarefas", "Tarefas", true],
-  ["firewall", "Firewall", true],
+  ["firewall", "Firewall", true], ["avancado", "Avançado", true],
 ];
 
 function Meter({ label, value, frac, hot }: { label: string; value: string; frac: number; hot?: boolean }) {

@@ -23,11 +23,12 @@ import (
 	"time"
 )
 
-// Auth é o ticket de um usuário logado.
+// Auth é o ticket de um usuário logado ou um token de API ("user@realm!id=segredo").
 type Auth struct {
 	User   string
 	Ticket string
 	CSRF   string
+	Token  string
 }
 
 // Error é uma resposta não-2xx da API.
@@ -108,7 +109,9 @@ func (c *Client) raw(ctx context.Context, a *Auth, method, path string, form url
 		req.Header.Set("Content-Type", contentType)
 		req.ContentLength = size
 	}
-	if a != nil {
+	if a != nil && a.Token != "" {
+		req.Header.Set("Authorization", "PVEAPIToken="+a.Token)
+	} else if a != nil {
 		req.AddCookie(&http.Cookie{Name: "PVEAuthCookie", Value: a.Ticket})
 		if method != http.MethodGet {
 			req.Header.Set("CSRFPreventionToken", a.CSRF)

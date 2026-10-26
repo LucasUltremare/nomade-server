@@ -2,7 +2,9 @@ import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type Device, type Disk, type Guest } from "./api";
 import { bytes } from "./format";
+import { igpuScript } from "./Extras";
 import { TaskLog } from "./Tasks";
+import { useSettings, useUI } from "./state";
 
 /** CPU, memória e discos de um guest já criado. */
 export function GuestHardware({ g }: { g: Guest }) {
@@ -234,6 +236,8 @@ function CpuLimits({ g, opts, onDone, onError }: { g: Guest; opts: Record<string
 
 function Devices({ g, devices, onDone, onError }: { g: Guest; devices: Device[]; onDone: Done; onError: Fail }) {
   const vm = g.type === "qemu";
+  const ui = useUI();
+  const { data: settings } = useSettings();
   const { data: hw } = useQuery({ queryKey: ["hardware", g.node], queryFn: () => api.hardware(g.node), enabled: vm });
   const [adding, setAdding] = useState<"" | "usb" | "pci" | "serial" | "dev">("");
   const [pick, setPick] = useState("");
@@ -285,7 +289,11 @@ function Devices({ g, devices, onDone, onError }: { g: Guest; devices: Device[];
               <button className="btn small" onClick={() => setAdding("serial")}>Adicionar porta serial</button>
             </>
           ) : (
-            <button className="btn small" onClick={() => setAdding("dev")}>Passar dispositivo pro contêiner</button>
+            <>
+              <button className="btn small" onClick={() => setAdding("dev")}>Passar dispositivo pro contêiner</button>
+              <button className="btn small" disabled={!settings?.root} title={settings?.root ? "Passa /dev/dri (Intel/AMD) pro contêiner e reinicia ele" : "Só root@pam"}
+                onClick={() => { ui.openGuest(null); ui.openConsole({ node: g.node, kind: "node", title: `GPU · ${g.name}`, autorun: igpuScript(g.vmid) }); }}>Ligar GPU (Jellyfin, Plex…)</button>
+            </>
           )}
         </div>
       ) : (

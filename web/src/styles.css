@@ -864,3 +864,40 @@ td .cell-bar.hot i { background: var(--hot); }
   .vm-settings { grid-template-columns: 1fr; }
   .console-actions .btn { display: none; }
 }
+
+/* Datacenter, nó e extras */
+.dc { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 28px; align-items: start; }
+.dc-nav { position: sticky; top: 70px; display: flex; flex-direction: column; gap: 14px; max-height: calc(100vh - 90px); overflow-y: auto; }
+.dc-nav .side-title { color: var(--ink-3, var(--ink-2)); margin: 0 0 4px; }
+.dc-nav .list-btn { width: 100%; text-align: left; padding-top: 5px; padding-bottom: 5px; }
+.dc-main { min-width: 0; }
+.dc-mobile { display: none; }
+.crud { margin-bottom: 30px; }
+.crud td.row-actions { width: 1%; white-space: nowrap; }
+.crud td.row-actions > div { display: flex; gap: 4px; justify-content: flex-end; }
+.crud td:not(.row-actions) { white-space: normal; }
+.chip-picks .pick { white-space: nowrap; }
+.chip-picks { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.task-inline { margin-top: 10px; }
+textarea.code { width: 100%; font-family: var(--mono); font-size: 12px; line-height: 1.5; border: 1px solid var(--line-strong); border-radius: 9px; padding: 10px 12px; background: var(--bg); color: inherit; resize: vertical; }
+.logbox { font-family: var(--mono); font-size: 12px; line-height: 1.5; background: var(--bg-sunken); border-radius: 10px; padding: 12px 14px; max-height: 480px; overflow: auto; white-space: pre-wrap; word-break: break-all; margin: 10px 0 0; }
+.sys-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+.sys-card { min-height: 0; padding: 16px; }
+.sys-card > b { font-size: 14px; display: block; margin-bottom: 10px; }
+.sys-actions { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin-top: 12px; }
+.span-all { grid-column: 1 / -1; }
+.node-charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px; margin-top: 18px; }
+.stack-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+.card.stack { display: flex; flex-direction: column; gap: 8px; text-align: left; border: 0; cursor: pointer; font: inherit; color: inherit; }
+.card.stack:hover { background: var(--bg-hover); }
+.card.stack > span { font-size: 13px; color: var(--ink-2); }
+.card.stack > span.mono { font-size: 11px; margin-top: auto; }
+.stack-logos { display: flex; gap: 6px; min-height: 28px; }
+.stack-logos img { border-radius: 6px; object-fit: contain; background: var(--bg); padding: 2px; }
+
+@media (max-width: 860px) {
+  .dc { grid-template-columns: 1fr; gap: 0; }
+  .dc-nav { display: none; }
+  .dc-mobile { display: block; width: 100%; margin-bottom: 18px; }
+  .sys-grid, .node-charts { grid-template-columns: 1fr; }
+}

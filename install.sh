@@ -306,7 +306,34 @@ RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 WantedBy=multi-user.target
 EOF
   write_update_units
+  create_token
   msg_ok "Configuração em ${BL}${ENV_FILE}${CL}"
+}
+
+# Token de API pros agendamentos da Mia (ligar/desligar em horário,
+# snapshots automáticos, teste de restauração). Papel próprio, só com o
+# necessário: mexe em guests e storages, não em usuários nem no host.
+MIA_ROLE_PRIVS="VM.Audit VM.PowerMgmt VM.Snapshot VM.Snapshot.Rollback VM.Backup VM.Allocate VM.Clone VM.Config.Disk VM.Config.Network VM.Config.Options VM.Config.CPU VM.Config.Memory VM.Config.HWType VM.Config.CDROM VM.Config.Cloudinit Datastore.Audit Datastore.AllocateSpace Sys.Audit SDN.Use"
+
+create_token() {
+  grep -q '^MIA_PVE_TOKEN=' "$ENV_FILE" 2>/dev/null && return 0
+  command -v pveum >/dev/null 2>&1 || return 0
+  if pveum role list --output-format json 2>/dev/null | grep -q '"roleid":"MiaJobs"'; then
+    run pveum role modify MiaJobs --privs "$MIA_ROLE_PRIVS" || true
+  else
+    run pveum role add MiaJobs --privs "$MIA_ROLE_PRIVS" || true
+  fi
+  run pveum user add mia@pve --comment "Mia: agendamentos" || true
+  run pveum acl modify / --users mia@pve --roles MiaJobs
+  # Token sem separação de privilégio: herda o papel do usuário mia@pve.
+  run pveum user token remove mia@pve mia || true
+  local secret
+  secret="$(pveum user token add mia@pve mia --privsep 0 --comment "Mia" --output-format json 2>>"$LOG" | grep -oP '"value"\s*:\s*"\K[^"]+' || true)"
+  if [[ -n "$secret" ]]; then
+    echo "MIA_PVE_TOKEN=mia@pve!mia=${secret}" >>"$ENV_FILE"
+  else
+    msg_warn "Não consegui criar o token da Mia; os agendamentos ficam desligados"
+  fi
 }
 
 # Atualização pelo painel: o Mia (sem privilégios) só grava
@@ -436,6 +463,8 @@ do_uninstall() {
   if ask_yes "Dados" "\nApagar também a configuração e os dados?\n(${ETC}, ${DATA}: favoritos e certificado gerado)"; then
     rm -rf "$ETC" "$DATA"
     run userdel "$SVC_USER" || true
+    run pveum user delete mia@pve || true
+    run pveum role delete MiaJobs || true
     msg_ok "Configuração e dados apagados"
   fi
   echo

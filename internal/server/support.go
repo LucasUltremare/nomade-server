@@ -66,6 +66,7 @@ type state struct {
 		Tailnet      string                 `json:"tailnet,omitempty"` // ex.: tail1a2b3c.ts.net
 		Exposed      map[string]string      `json:"exposed,omitempty"` // vmid ou "name:x" -> nome na tailnet
 		Apps         map[string]appOverride `json:"apps,omitempty"`    // vmid -> ajustes do Meus apps
+		Jobs         []job                  `json:"jobs,omitempty"`
 	}
 }
 
@@ -101,6 +102,53 @@ func (s *state) setFavorites(user string, ids []string) error {
 	}
 	s.data.Favorites[user] = slices.Compact(ids)
 	return s.save()
+}
+
+func (s *state) jobsSnapshot() []job {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]job, len(s.data.Jobs))
+	copy(out, s.data.Jobs)
+	return out
+}
+
+func (s *state) job(id string) (job, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, j := range s.data.Jobs {
+		if j.ID == id {
+			return j, true
+		}
+	}
+	return job{}, false
+}
+
+func (s *state) addJob(j job) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.data.Jobs = append(s.data.Jobs, j)
+	return s.save()
+}
+
+// updateJob aplica fn no job e salva; false se não existe.
+func (s *state) updateJob(id string, fn func(*job)) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.data.Jobs {
+		if s.data.Jobs[i].ID == id {
+			fn(&s.data.Jobs[i])
+			s.save()
+			return true
+		}
+	}
+	return false
+}
+
+func (s *state) deleteJob(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.data.Jobs = slices.DeleteFunc(s.data.Jobs, func(j job) bool { return j.ID == id })
+	s.save()
 }
 
 func (s *state) appOverrides() map[string]appOverride {

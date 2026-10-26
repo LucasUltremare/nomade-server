@@ -12,7 +12,7 @@ export interface ConsoleTarget {
   /** Comando digitado assim que o shell responder (loja de apps, Tailscale). */
   autorun?: string;
   /** Terminal especial do PVE (só no nó): "upgrade" abre já atualizando. */
-  cmd?: "upgrade";
+  cmd?: "upgrade" | "ceph_install";
 }
 
 type Status = "connecting" | "connected" | "closed" | "error";

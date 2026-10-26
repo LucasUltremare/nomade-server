@@ -51,7 +51,7 @@ export function GuestCharts({ g }: { g: Guest }) {
 const H = 92;
 const PAD = 6;
 
-function MiniChart({ title, t, series, fmt, max, long }: {
+export function MiniChart({ title, t, series, fmt, max, long }: {
   title: string; t: number[]; series: Series[]; fmt: (v: number) => string; max?: number; long: boolean;
 }) {
   const [ref, width] = useWidth<HTMLDivElement>();

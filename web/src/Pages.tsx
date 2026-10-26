@@ -3,6 +3,7 @@ import type { Guest, GuestType, Range } from "./api";
 import { DotPlot, binSamples } from "./charts/DotPlot";
 import { Trend } from "./charts/Trend";
 import { HOT, IDLE, bytesPair, health, kindLabel, num, pct, pctFixed, uptime } from "./format";
+import { CloudVmDialog } from "./Extras";
 import { navigate } from "./router";
 import { useFavorites, useGuests, useOverview, useStatus, useUI } from "./state";
 
@@ -122,6 +123,7 @@ export function GuestsPage({ type }: { type: GuestType }) {
   const { data, error, isLoading } = useGuests();
   const [q, setQ] = useState("");
   const [onlyRunning, setOnlyRunning] = useState(false);
+  const [cloud, setCloud] = useState(false);
   const rows = (data ?? [])
     .filter((g) => g.type === type)
     .filter((g) => !onlyRunning || g.status === "running")
@@ -141,8 +143,12 @@ export function GuestsPage({ type }: { type: GuestType }) {
             <button className="btn small primary" onClick={() => ui.setNewLxc(ui.node ?? "")}>Novo LXC</button>
           </div>
         ) : (
-          <button className="btn small primary" onClick={() => ui.setNewVm(ui.node ?? "")}>Nova VM</button>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="btn small" onClick={() => setCloud(true)}>De imagem cloud</button>
+            <button className="btn small primary" onClick={() => ui.setNewVm(ui.node ?? "")}>Nova VM</button>
+          </div>
         )}
+        {cloud && <CloudVmDialog onClose={() => setCloud(false)} />}
       </div>
       <div className="filters">
         <input placeholder="Filtrar por nome, id, nó, tag…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Filtrar" />

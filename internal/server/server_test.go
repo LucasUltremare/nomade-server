@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/cookiejar"
@@ -390,7 +391,7 @@ func TestGuestDisks(t *testing.T) {
 	ts, c := loginRoot(t)
 	var cfg guestConfig
 	call(t, c, "GET", ts.URL+"/api/guests/lxc/101/config", nil, &cfg)
-	if len(cfg.Disks) != 2 || cfg.Disks[0].Key != "rootfs" || cfg.Disks[1].Mountpoint != "/media" {
+	if len(cfg.Disks) != 3 || cfg.Disks[0].Key != "rootfs" || cfg.Disks[1].Mountpoint != "/media" || !cfg.Disks[2].Bind {
 		t.Fatalf("discos: %+v", cfg.Disks)
 	}
 	root := cfg.Disks[0].Size
@@ -414,14 +415,14 @@ func TestGuestDisks(t *testing.T) {
 		Key string `json:"key"`
 	}
 	call(t, c, "POST", ts.URL+"/api/guests/lxc/101/disks/add", map[string]any{"storage": "tank", "size": 10, "path": "/data", "backup": true}, &added)
-	if added.Key != "mp1" {
-		t.Errorf("novo ponto de montagem devia ser mp1, veio %q", added.Key)
+	if added.Key != "mp2" {
+		t.Errorf("novo ponto de montagem devia ser mp2, veio %q", added.Key)
 	}
 	// Desanexar vira unused; remover o unused apaga.
-	call(t, c, "DELETE", ts.URL+"/api/guests/lxc/101/disks/mp1", nil, nil)
+	call(t, c, "DELETE", ts.URL+"/api/guests/lxc/101/disks/mp2", nil, nil)
 	call(t, c, "GET", ts.URL+"/api/guests/lxc/101/config", nil, &cfg)
 	if !slices.ContainsFunc(cfg.Disks, func(d diskView) bool { return d.Unused }) {
-		t.Fatalf("mp1 devia virar unused: %+v", cfg.Disks)
+		t.Fatalf("mp2 devia virar unused: %+v", cfg.Disks)
 	}
 	if code := call(t, c, "DELETE", ts.URL+"/api/guests/lxc/101/disks/rootfs", nil, nil); code != 400 {
 		t.Errorf("rootfs não pode ser removido: %d", code)
@@ -907,5 +908,138 @@ func TestMyApps(t *testing.T) {
 	}
 	if slices.ContainsFunc(apps, func(a myApp) bool { return a.VMID == 113 }) {
 		t.Error("app escondido apareceu")
+	}
+}
+
+func TestParityForward(t *testing.T) {
+	ts, c := loginRoot(t)
+	// Parâmetro fora da lista é recusado antes de chegar no PVE.
+	if code := call(t, c, "POST", ts.URL+"/api/pve/storage", map[string]any{"storage": "x", "type": "dir", "evil": "1"}, nil); code != 400 {
+		t.Errorf("parâmetro desconhecido devia dar 400: %d", code)
+	}
+	if code := call(t, c, "POST", ts.URL+"/api/pve/storage", map[string]any{"storage": "nfs-casa", "type": "nfs", "server": "10.0.10.5", "export": "/mnt/tank/backups", "content": "backup,iso"}, nil); code != 200 {
+		t.Fatalf("criar storage: %d", code)
+	}
+	var stores []map[string]any
+	call(t, c, "GET", ts.URL+"/api/pve/storage", nil, &stores)
+	if !slices.ContainsFunc(stores, func(s map[string]any) bool { return s["storage"] == "nfs-casa" && s["server"] == "10.0.10.5" }) {
+		t.Errorf("storage novo não apareceu: %v", stores)
+	}
+	call(t, c, "PUT", ts.URL+"/api/pve/storage/nfs-casa", map[string]any{"content": "backup", "disable": true}, nil)
+	var one map[string]any
+	call(t, c, "GET", ts.URL+"/api/pve/storage/nfs-casa", nil, &one)
+	if one["content"] != "backup" || fmt.Sprint(one["disable"]) != "1" {
+		t.Errorf("storage editado: %v", one)
+	}
+	// Usuário, ACL, pool.
+	call(t, c, "POST", ts.URL+"/api/pve/access/users", map[string]any{"userid": "visita@pve", "password": "segredo123", "comment": "teste"}, nil)
+	call(t, c, "PUT", ts.URL+"/api/pve/access/acl", map[string]any{"path": "/vms/101", "roles": "PVEVMUser", "users": "visita@pve"}, nil)
+	var acl []map[string]any
+	call(t, c, "GET", ts.URL+"/api/pve/access/acl", nil, &acl)
+	if !slices.ContainsFunc(acl, func(x map[string]any) bool { return x["ugid"] == "visita@pve" && x["path"] == "/vms/101" }) {
+		t.Errorf("acl: %v", acl)
+	}
+	call(t, c, "PUT", ts.URL+"/api/pve/pools", map[string]any{"poolid": "casa", "vms": "104"}, nil)
+	var pools []map[string]any
+	call(t, c, "GET", ts.URL+"/api/pve/pools?poolid=casa", nil, &pools)
+	if len(pools) != 1 || len(pools[0]["members"].([]any)) != 3 {
+		t.Errorf("pool: %v", pools)
+	}
+	// Objeto por nó e opções do datacenter.
+	call(t, c, "PUT", ts.URL+"/api/pve/nodes/pve-01/dns", map[string]any{"search": "casa", "dns1": "9.9.9.9"}, nil)
+	var dns map[string]any
+	call(t, c, "GET", ts.URL+"/api/pve/nodes/pve-01/dns", nil, &dns)
+	if dns["search"] != "casa" || dns["dns1"] != "9.9.9.9" {
+		t.Errorf("dns: %v", dns)
+	}
+	// CIDR com barra no caminho (ipset).
+	call(t, c, "POST", ts.URL+"/api/pve/cluster/firewall/ipset/management", map[string]any{"cidr": "192.168.50.0/24"}, nil)
+	if code := call(t, c, "DELETE", ts.URL+"/api/pve/cluster/firewall/ipset/management/"+url.PathEscape("192.168.50.0/24"), nil, nil); code != 200 {
+		t.Errorf("apagar entrada do ipset: %d", code)
+	}
+	var entries []map[string]any
+	call(t, c, "GET", ts.URL+"/api/pve/cluster/firewall/ipset/management", nil, &entries)
+	if len(entries) != 2 {
+		t.Errorf("ipset: %v", entries)
+	}
+}
+
+func TestJobs(t *testing.T) {
+	restoreSettle = 100 * time.Millisecond
+	ts, c := loginRoot(t)
+	var out struct {
+		ID string `json:"id"`
+	}
+	if code := call(t, c, "POST", ts.URL+"/api/jobs", job{Kind: "power", Action: "explodir", Time: "08:00", Targets: []string{"qemu/110"}}, nil); code != 400 {
+		t.Errorf("ação inválida devia dar 400: %d", code)
+	}
+	call(t, c, "POST", ts.URL+"/api/jobs", job{Kind: "snapshot", Name: "vlad 2/2h", Enabled: true, EveryHours: 2, Keep: 2, Targets: []string{"qemu/102"}}, &out)
+	snapID := out.ID
+	call(t, c, "POST", ts.URL+"/api/jobs", job{Kind: "restoretest", Name: "teste", Enabled: true, Time: "04:00", Storage: "tank", Targets: []string{"lxc/101"}}, &out)
+	restoreID := out.ID
+
+	run := func(id string) jobResult {
+		call(t, c, "POST", ts.URL+"/api/jobs/"+id+"/run", nil, nil)
+		for i := 0; i < 100; i++ {
+			time.Sleep(300 * time.Millisecond)
+			var list struct {
+				Jobs []job `json:"jobs"`
+			}
+			call(t, c, "GET", ts.URL+"/api/jobs", nil, &list)
+			j := list.Jobs[slices.IndexFunc(list.Jobs, func(j job) bool { return j.ID == id })]
+			if len(j.History) > 0 {
+				return j.History[0]
+			}
+		}
+		t.Fatalf("job %s não terminou", id)
+		return jobResult{}
+	}
+	for i := 0; i < 3; i++ {
+		if r := run(snapID); !r.OK {
+			t.Fatalf("snapshot automático: %s", r.Message)
+		}
+		time.Sleep(1100 * time.Millisecond) // o nome tem segundos: garante nomes diferentes
+	}
+	var snaps []snapshotView
+	call(t, c, "GET", ts.URL+"/api/guests/qemu/102/snapshots", nil, &snaps)
+	autos := slices.DeleteFunc(snaps, func(s snapshotView) bool { return !strings.HasPrefix(s.Name, "auto_") })
+	if len(autos) > 2 {
+		t.Errorf("retenção devia deixar no máximo 2 automáticos, tem %d", len(autos))
+	}
+
+	r := run(restoreID)
+	if !r.OK || !strings.Contains(r.Message, "jellyfin") {
+		t.Fatalf("teste de restauração: %+v", r)
+	}
+	var guests []guestView
+	call(t, c, "GET", ts.URL+"/api/guests", nil, &guests)
+	if slices.ContainsFunc(guests, func(g guestView) bool { return strings.HasPrefix(g.Name, "mia-teste") }) {
+		t.Error("o guest temporário do teste devia ter sido apagado")
+	}
+}
+
+func TestSharedFolders(t *testing.T) {
+	ts, c := loginRoot(t)
+	var got []sharedFolder
+	if code := call(t, c, "GET", ts.URL+"/api/shared-folders", nil, &got); code != 200 {
+		t.Fatalf("shared-folders: %d", code)
+	}
+	i := slices.IndexFunc(got, func(f sharedFolder) bool { return f.Path == "/tank/media" })
+	if i < 0 {
+		t.Fatalf("/tank/media não apareceu: %+v", got)
+	}
+	f := got[i]
+	if len(f.Mounts) != 2 {
+		t.Fatalf("esperava 2 contêineres em /tank/media: %+v", f.Mounts)
+	}
+	ro := slices.IndexFunc(f.Mounts, func(m sharedMount) bool { return m.VMID == 114 })
+	if ro < 0 || !f.Mounts[ro].RO || f.Mounts[ro].MP != "/media" {
+		t.Errorf("CT 114 devia montar /media só leitura: %+v", f.Mounts)
+	}
+	// Disco de storage (tank:subvol-…) não é pasta do host.
+	for _, x := range got {
+		if !strings.HasPrefix(x.Path, "/") {
+			t.Errorf("volume de storage entrou como pasta: %+v", x)
+		}
 	}
 }

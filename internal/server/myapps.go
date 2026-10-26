@@ -232,7 +232,7 @@ func (s *Server) handleMyApps(w http.ResponseWriter, r *http.Request, a pve.Auth
 			})
 			app.IP, app.TSIP = ips.lan, ips.ts
 			if app.IP == "" && g.Type == "lxc" {
-				if cfg, err := s.rawConfig(r, a, g); err == nil {
+				if cfg, err := s.rawConfig(r.Context(), a, g); err == nil {
 					app.IP = staticIP(cfg)
 				}
 			}

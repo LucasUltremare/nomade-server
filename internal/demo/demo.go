@@ -138,6 +138,12 @@ type Server struct {
 	fw       map[string]*fwState
 	snaps    map[int][]snap
 	aptRepos map[string][]repo
+	rest     *rest
+	objs     map[string]map[string]map[string]any // nó -> dns/time/config/hosts
+	acl      []map[string]any
+	tfa      map[string][]map[string]any
+	pools    map[string]map[string]any
+	copts    map[string]any
 	termCmd  map[string]string // ticket do termproxy -> cmd (ex.: upgrade)
 	srv      *httptest.Server
 }
@@ -156,6 +162,7 @@ func Start() *Server {
 	s.initManage()
 	s.initExtra()
 	s.initVM()
+	s.rest = newRest()
 	for _, g := range s.list {
 		st := g.status
 		if st == "" {
@@ -173,16 +180,21 @@ func Start() *Server {
 	mux.HandleFunc("GET /api2/json/cluster/resources", s.auth(s.resources))
 	mux.HandleFunc("GET /api2/json/nodes/{node}/status", s.auth(s.nodeStatus))
 	mux.HandleFunc("GET /api2/json/nodes/{node}/rrddata", s.auth(s.nodeRRD))
-	mux.HandleFunc("GET /api2/json/nodes/{node}/{kind}/{vmid}/rrddata", s.auth(s.guestRRD))
+	for _, k := range []string{"lxc", "qemu"} {
+		mux.HandleFunc("GET /api2/json/nodes/{node}/"+k+"/{vmid}/rrddata", s.auth(s.guestRRD))
+	}
 	mux.HandleFunc("GET /api2/json/nodes/{node}/tasks", s.auth(s.tasks))
 	mux.HandleFunc("GET /api2/json/nodes/{node}/disks/zfs", s.auth(s.zfs))
 	mux.HandleFunc("GET /api2/json/nodes/{node}/storage", s.auth(s.storage))
 	mux.HandleFunc("POST /api2/json/nodes/{node}/vzdump", s.auth(s.vzdump))
-	mux.HandleFunc("POST /api2/json/nodes/{node}/{kind}/{vmid}/status/{action}", s.auth(s.guestAction))
+	for _, k := range []string{"lxc", "qemu"} {
+		mux.HandleFunc("POST /api2/json/nodes/{node}/"+k+"/{vmid}/status/{action}", s.auth(s.guestAction))
+	}
 	s.routesManage(mux)
 	s.routesExtra(mux)
 	s.routesVM(mux)
 	s.routesPhase1(mux)
+	s.routesSpecial(mux)
 	s.srv = httptest.NewTLSServer(mux)
 	return s
 }
@@ -427,7 +439,7 @@ func (s *Server) guestRRD(w http.ResponseWriter, r *http.Request) {
 	vmid, _ := strconv.Atoi(r.PathValue("vmid"))
 	var g *guest
 	for _, x := range s.guests() {
-		if x.vmid == vmid && x.kind == r.PathValue("kind") {
+		if x.vmid == vmid && strings.Contains(r.URL.Path, "/"+x.kind+"/") {
 			g = x
 		}
 	}

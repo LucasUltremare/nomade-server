@@ -114,6 +114,10 @@ func (s *Server) conf(g *guest) map[string]string {
 		c["ostype"] = "debian"
 		if g.vmid == 101 {
 			c["mp0"] = fmt.Sprintf("%s:subvol-101-disk-1,mp=/media,size=500G,backup=0", st)
+			c["mp1"] = "/tank/media,mp=/data/media"
+		}
+		if g.vmid == 114 {
+			c["mp0"] = "/tank/media,mp=/media,ro=1"
 		}
 	} else {
 		c["name"] = g.name

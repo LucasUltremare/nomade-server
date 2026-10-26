@@ -2,7 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { api } from "./api";
 import { health, kindLabel } from "./format";
 import {
-  IconApps, IconDownload, IconGrid, IconHome, IconLXC, IconLogout, IconNetwork, IconNodes, IconSearch, IconShield, IconSidebar,
+  IconApps, IconCluster, IconDownload, IconGrid, IconHome, IconLXC, IconLogout, IconNetwork, IconNodes, IconSearch, IconShield, IconSidebar,
   IconStorage, IconTerminal, IconVM,
 } from "./icons";
 import { MiaMark } from "./Logo";
@@ -21,6 +21,7 @@ export const NAV = [
   { path: "/rede", label: "Rede", icon: IconNetwork },
   { path: "/backups", label: "Backups", icon: IconShield },
   { path: "/console", label: "Console", icon: IconTerminal },
+  { path: "/datacenter", label: "Datacenter", icon: IconCluster },
 ];
 
 export function Sidebar({ onToggle }: { onToggle: () => void }) {

@@ -4,12 +4,16 @@ import { api } from "./api";
 import { bytesPair, num, pct, uptime } from "./format";
 import { useHealth } from "./Health";
 import { navigate } from "./router";
+import { NodeCerts, NodeCharts, NodeDisks, NodeLog, NodeSubscription, NodeSystemTab } from "./NodeSystem";
 import { TaskLog } from "./Tasks";
 import { useSettings, useStatus, useUI } from "./state";
 
-export type NodeTab = "resumo" | "atualizacoes" | "repositorios";
+export type NodeTab = "resumo" | "graficos" | "atualizacoes" | "repositorios" | "discos" | "sistema" | "certificados" | "log" | "assinatura";
 
-const TABS: [NodeTab, string][] = [["resumo", "Resumo"], ["atualizacoes", "Atualizações"], ["repositorios", "Repositórios"]];
+const TABS: [NodeTab, string][] = [
+  ["resumo", "Resumo"], ["graficos", "Gráficos"], ["atualizacoes", "Atualizações"], ["repositorios", "Repositórios"], ["discos", "Discos"],
+  ["sistema", "Sistema"], ["certificados", "Certificados"], ["log", "Log"], ["assinatura", "Assinatura"],
+];
 
 /** Página de um nó: /nos/{nome}. */
 export function NodePage({ name }: { name: string }) {
@@ -31,6 +35,12 @@ export function NodePage({ name }: { name: string }) {
       {tab === "resumo" && <NodeSummary name={name} />}
       {tab === "atualizacoes" && <NodeUpdates name={name} />}
       {tab === "repositorios" && <NodeRepos name={name} />}
+      {tab === "graficos" && <NodeCharts node={name} />}
+      {tab === "discos" && <NodeDisks node={name} />}
+      {tab === "sistema" && <NodeSystemTab node={name} />}
+      {tab === "certificados" && <NodeCerts node={name} />}
+      {tab === "log" && <NodeLog node={name} />}
+      {tab === "assinatura" && <NodeSubscription node={name} />}
     </div>
   );
 }

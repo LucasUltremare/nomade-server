@@ -4,6 +4,7 @@ import { api, uploadFile, type StorageRow, type Volume } from "./api";
 import { Modal } from "./Dialogs";
 import { bytes, bytesPair } from "./format";
 import { IconX } from "./icons";
+import { OvaImportDialog, SharedFolders } from "./Extras";
 import { TaskLog } from "./Tasks";
 
 const CONTENT_SHORT: Record<string, string> = {
@@ -59,6 +60,7 @@ export function StoragePage() {
       </div>
 
       {current && <StorageContent key={`${current.node}/${current.storage}`} st={current} />}
+      <SharedFolders />
     </div>
   );
 }
@@ -74,6 +76,7 @@ function StorageContent({ st }: { st: StorageRow }) {
   const [upid, setUpid] = useState("");
   const [confirm, setConfirm] = useState("");
   const [dialog, setDialog] = useState<"upload" | "url" | Volume | null>(null);
+  const [ova, setOva] = useState("");
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ["content", st.node, st.storage] });
     qc.invalidateQueries({ queryKey: ["storages"] });
@@ -128,6 +131,7 @@ function StorageContent({ st }: { st: StorageRow }) {
                   <td className="mono">{v.ctime ? new Date(v.ctime * 1000).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }) : "—"}</td>
                   <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
                     {tab === "backup" && <button className="btn small" onClick={() => setDialog(v)}>Restaurar</button>}{" "}
+                    {tab === "import" && /\.(ova|ovf|vmx)$/i.test(v.volid) && <button className="btn small" onClick={() => setOva(v.volid)}>Criar VM</button>}{" "}
                     {tab !== "images" && tab !== "rootdir" && !v.protected && (confirm === v.volid ? (
                       <button className="btn small danger" onClick={() => del.mutate(v)} disabled={del.isPending}>Confirmar</button>
                     ) : (
@@ -146,6 +150,7 @@ function StorageContent({ st }: { st: StorageRow }) {
         <p className="muted" style={{ fontSize: 12 }}>Discos de guests são gerenciados pelo próprio guest; apague o guest pra liberar.</p>
       ) : null}
 
+      {ova && <OvaImportDialog node={st.node} volid={ova} onClose={() => setOva("")} />}
       {dialog === "upload" && <UploadDialog st={st} content={tab} onClose={() => setDialog(null)} onStarted={(u) => { setUpid(u); setDialog(null); }} />}
       {dialog === "url" && <URLDialog st={st} content={tab} onClose={() => setDialog(null)} onStarted={(u) => { setUpid(u); setDialog(null); }} />}
       {dialog && typeof dialog === "object" && <RestoreDialog st={st} vol={dialog} onClose={() => setDialog(null)} />}

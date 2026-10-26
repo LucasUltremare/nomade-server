@@ -53,7 +53,7 @@ func (s *Server) handleConsoleOpen(w http.ResponseWriter, r *http.Request, a pve
 		writeJSON(w, map[string]any{"node": body.Node, "kind": "qemu", "vmid": body.VMID, "port": int(t.Port), "ticket": t.Ticket, "user": a.User})
 		return
 	}
-	if body.Cmd != "" && body.Cmd != "upgrade" {
+	if body.Cmd != "" && body.Cmd != "upgrade" && body.Cmd != "ceph_install" {
 		writeErr(w, http.StatusBadRequest, "comando inválido")
 		return
 	}

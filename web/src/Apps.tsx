@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, type App } from "./api";
 import { Modal } from "./Dialogs";
+import { StacksTab } from "./Extras";
 import { IconExternal, IconX } from "./icons";
 import { useGuests, useSettings, useStatus, useUI } from "./state";
 
@@ -26,6 +27,7 @@ export function AppsPage() {
   const [type, setType] = useState("");
   const [limit, setLimit] = useState(PAGE);
   const [open, setOpen] = useState<App | null>(null);
+  const [view, setView] = useState<"apps" | "stacks">("apps");
 
   const list = useMemo(() => {
     const term = q.trim().toLowerCase();
@@ -57,6 +59,11 @@ export function AppsPage() {
           {isFetching ? "Atualizando…" : "Atualizar catálogo"}
         </button>
       </div>
+      <div className="seg page-tabs" role="tablist">
+        <button role="tab" aria-pressed={view === "apps"} onClick={() => setView("apps")}>Catálogo</button>
+        <button role="tab" aria-pressed={view === "stacks"} onClick={() => setView("stacks")}>Stacks</button>
+      </div>
+      {view === "stacks" ? <StacksTab catalog={data?.apps ?? []} /> : <>
       <p className="lede" style={{ marginTop: 12 }}>
         Os scripts do <a href="https://community-scripts.org" target="_blank" rel="noreferrer">Proxmox VE Helper-Scripts</a>,
         rodando no console do nó. Você acompanha a instalação ao vivo e pode responder o que o script perguntar.
@@ -102,6 +109,7 @@ export function AppsPage() {
         </div>
       )}
       {data && !list.length && <p className="muted">Nenhum app encontrado.</p>}
+      </>}
       {open && <AppDialog app={open} onClose={() => setOpen(null)} />}
     </div>
   );
