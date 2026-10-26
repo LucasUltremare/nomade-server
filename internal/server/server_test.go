@@ -355,3 +355,229 @@ func TestNewer(t *testing.T) {
 		}
 	}
 }
+
+func loginRoot(t *testing.T) (*httptest.Server, *http.Client) {
+	t.Helper()
+	ts, c := newTestServer(t)
+	call(t, c, "POST", ts.URL+"/api/login", map[string]string{"username": "root", "password": "x"}, nil)
+	return ts, c
+}
+
+func waitTask(t *testing.T, ts *httptest.Server, c *http.Client, upid string) string {
+	t.Helper()
+	var st struct {
+		Status     string `json:"status"`
+		ExitStatus string `json:"exitstatus"`
+	}
+	for i := 0; i < 50 && st.Status != "stopped"; i++ {
+		time.Sleep(200 * time.Millisecond)
+		call(t, c, "GET", ts.URL+"/api/tasks/"+url.PathEscape(upid), nil, &st)
+	}
+	time.Sleep(100 * time.Millisecond)
+	return st.ExitStatus
+}
+
+func TestGuestDisks(t *testing.T) {
+	ts, c := loginRoot(t)
+	var cfg guestConfig
+	call(t, c, "GET", ts.URL+"/api/guests/lxc/101/config", nil, &cfg)
+	if len(cfg.Disks) != 2 || cfg.Disks[0].Key != "rootfs" || cfg.Disks[1].Mountpoint != "/media" {
+		t.Fatalf("discos: %+v", cfg.Disks)
+	}
+	root := cfg.Disks[0].Size
+
+	var up struct {
+		UPID string `json:"upid"`
+	}
+	if code := call(t, c, "POST", ts.URL+"/api/guests/lxc/101/disks/resize", map[string]any{"disk": "rootfs", "add": 4}, &up); code != 200 {
+		t.Fatalf("resize: %d", code)
+	}
+	waitTask(t, ts, c, up.UPID)
+	call(t, c, "GET", ts.URL+"/api/guests/lxc/101/config", nil, &cfg)
+	if cfg.Disks[0].Size != root+4<<30 {
+		t.Errorf("rootfs não cresceu: %d -> %d", root, cfg.Disks[0].Size)
+	}
+
+	if code := call(t, c, "POST", ts.URL+"/api/guests/lxc/101/disks/add", map[string]any{"storage": "tank", "size": 10, "path": "../etc"}, nil); code != 400 {
+		t.Errorf("caminho inválido devia dar 400: %d", code)
+	}
+	var added struct {
+		Key string `json:"key"`
+	}
+	call(t, c, "POST", ts.URL+"/api/guests/lxc/101/disks/add", map[string]any{"storage": "tank", "size": 10, "path": "/data", "backup": true}, &added)
+	if added.Key != "mp1" {
+		t.Errorf("novo ponto de montagem devia ser mp1, veio %q", added.Key)
+	}
+	// Desanexar vira unused; remover o unused apaga.
+	call(t, c, "DELETE", ts.URL+"/api/guests/lxc/101/disks/mp1", nil, nil)
+	call(t, c, "GET", ts.URL+"/api/guests/lxc/101/config", nil, &cfg)
+	if !slices.ContainsFunc(cfg.Disks, func(d diskView) bool { return d.Unused }) {
+		t.Fatalf("mp1 devia virar unused: %+v", cfg.Disks)
+	}
+	if code := call(t, c, "DELETE", ts.URL+"/api/guests/lxc/101/disks/rootfs", nil, nil); code != 400 {
+		t.Errorf("rootfs não pode ser removido: %d", code)
+	}
+
+	// LXC rodando não move volume: o erro do PVE chega no front.
+	if code := call(t, c, "POST", ts.URL+"/api/guests/lxc/101/disks/move", map[string]any{"disk": "rootfs", "storage": "local"}, nil); code == 200 {
+		t.Error("mover rootfs de CT rodando devia falhar")
+	}
+
+	call(t, c, "PUT", ts.URL+"/api/guests/lxc/104/resources", map[string]any{"cores": 3, "memory": 3072, "swap": 256}, nil)
+	call(t, c, "GET", ts.URL+"/api/guests/lxc/104/config", nil, &cfg)
+	if cfg.Cores != 3 || cfg.Memory != 3072 || cfg.Swap != 256 {
+		t.Errorf("recursos: %+v", cfg)
+	}
+}
+
+func TestMigrate(t *testing.T) {
+	ts, c := loginRoot(t)
+	var up struct {
+		UPID string `json:"upid"`
+	}
+	if code := call(t, c, "POST", ts.URL+"/api/guests/lxc/104/migrate", map[string]string{"target": "pve-01"}, nil); code != 400 {
+		t.Errorf("migrar pro mesmo nó devia dar 400: %d", code)
+	}
+	call(t, c, "POST", ts.URL+"/api/guests/lxc/104/migrate", map[string]string{"target": "pve-02"}, &up)
+	if exit := waitTask(t, ts, c, up.UPID); exit != "OK" {
+		t.Fatalf("migração: %q", exit)
+	}
+	var guests []guestView
+	call(t, c, "GET", ts.URL+"/api/guests", nil, &guests)
+	if i := slices.IndexFunc(guests, func(g guestView) bool { return g.VMID == 104 }); guests[i].Node != "pve-02" {
+		t.Errorf("104 devia estar no pve-02, está no %s", guests[i].Node)
+	}
+}
+
+func TestHealth(t *testing.T) {
+	ts, c := loginRoot(t)
+	var rep healthReport
+	call(t, c, "GET", ts.URL+"/api/health", nil, &rep)
+	has := func(area, contains string) bool {
+		return slices.ContainsFunc(rep.Checks, func(x check) bool { return x.Area == area && strings.Contains(x.Title+x.Detail, contains) })
+	}
+	if !has("discos", "CT1000P3") {
+		t.Error("SSD desgastado do pve-02 não apareceu")
+	}
+	if !has("certificados", "pveproxy-ssl.pem") {
+		t.Error("certificado vencendo não apareceu")
+	}
+	if !has("atualizações", "pve-manager") {
+		t.Error("atualizações do pve-01 não apareceram")
+	}
+	if !has("backups", "win11-lab") {
+		t.Error("guest sem backup não apareceu")
+	}
+	if len(rep.Disks) != 6 || len(rep.Services) == 0 {
+		t.Errorf("discos=%d serviços=%d", len(rep.Disks), len(rep.Services))
+	}
+	if rep.Checks[0].Level == "ok" {
+		t.Error("ordem errada")
+	}
+}
+
+func TestBackupJobs(t *testing.T) {
+	ts, c := loginRoot(t)
+	var jobs []backupJob
+	call(t, c, "GET", ts.URL+"/api/backup/jobs", nil, &jobs)
+	daily := slices.IndexFunc(jobs, func(j backupJob) bool { return j.All })
+	if len(jobs) != 2 || daily < 0 || jobs[daily].Retention.Daily != 7 || jobs[daily].Exclude[0] != 110 {
+		t.Fatalf("jobs: %+v", jobs)
+	}
+	dailyID := jobs[daily].ID
+	novo := backupJob{Schedule: "sun 03:00", Storage: "local", Mode: "snapshot", VMIDs: []int{110}, Enabled: true, Retention: retention{Last: 2}}
+	if code := call(t, c, "POST", ts.URL+"/api/backup/jobs", novo, nil); code != 200 {
+		t.Fatalf("criar: %d", code)
+	}
+	if code := call(t, c, "POST", ts.URL+"/api/backup/jobs", backupJob{Schedule: "daily; reboot", Storage: "local", All: true}, nil); code != 400 {
+		t.Errorf("agendamento inválido devia dar 400: %d", code)
+	}
+	call(t, c, "GET", ts.URL+"/api/backup/jobs", nil, &jobs)
+	if len(jobs) != 3 {
+		t.Fatalf("esperava 3 jobs, veio %d", len(jobs))
+	}
+	var st []guestBackup
+	call(t, c, "GET", ts.URL+"/api/backup/status", nil, &st)
+	i := slices.IndexFunc(st, func(b guestBackup) bool { return b.VMID == 110 })
+	if i < 0 || !st[i].Covered {
+		t.Errorf("110 devia estar coberto pelo job novo: %+v", st[i])
+	}
+	j := slices.IndexFunc(st, func(b guestBackup) bool { return b.VMID == 101 })
+	if st[j].Last == 0 || st[j].Count == 0 {
+		t.Errorf("101 devia ter backups: %+v", st[j])
+	}
+
+	off := jobs[slices.IndexFunc(jobs, func(j backupJob) bool { return j.ID == dailyID })]
+	off.Enabled = false
+	call(t, c, "PUT", ts.URL+"/api/backup/jobs/"+off.ID, off, nil)
+	var run struct {
+		Tasks []struct {
+			Node, UPID, Error string
+		} `json:"tasks"`
+	}
+	call(t, c, "POST", ts.URL+"/api/backup/jobs/"+off.ID+"/run", nil, &run)
+	if len(run.Tasks) != 3 {
+		t.Errorf("job com todos devia rodar nos 3 nós: %+v", run.Tasks)
+	}
+	call(t, c, "GET", ts.URL+"/api/backup/jobs", nil, &jobs)
+	if jobs[slices.IndexFunc(jobs, func(j backupJob) bool { return j.ID == dailyID })].Enabled {
+		t.Error("job devia estar desligado")
+	}
+	call(t, c, "DELETE", ts.URL+"/api/backup/jobs/"+dailyID, nil, nil)
+	call(t, c, "GET", ts.URL+"/api/backup/jobs", nil, &jobs)
+	if len(jobs) != 2 {
+		t.Errorf("depois de apagar: %d", len(jobs))
+	}
+}
+
+func TestFirewall(t *testing.T) {
+	ts, c := loginRoot(t)
+	var fw struct {
+		Enable      bool     `json:"enable"`
+		Rules       []fwRule `json:"rules"`
+		MiaPortOpen bool     `json:"miaPortOpen"`
+	}
+	call(t, c, "GET", ts.URL+"/api/firewall?scope=cluster", nil, &fw)
+	if fw.Enable || len(fw.Rules) != 2 || fw.MiaPortOpen {
+		t.Fatalf("estado inicial: %+v", fw)
+	}
+	if code := call(t, c, "POST", ts.URL+"/api/firewall/rules?scope=cluster", fwRule{Type: "in", Action: "ACCEPT", Dport: "8443; rm", Enable: true}, nil); code != 400 {
+		t.Errorf("porta com lixo devia dar 400: %d", code)
+	}
+	call(t, c, "POST", ts.URL+"/api/firewall/rules?scope=cluster", fwRule{Type: "in", Action: "ACCEPT", Proto: "tcp", Dport: "8443", Comment: "Mia", Enable: true}, nil)
+	call(t, c, "GET", ts.URL+"/api/firewall?scope=cluster", nil, &fw)
+	if !fw.MiaPortOpen || fw.Rules[0].Comment != "Mia" {
+		t.Errorf("regra do Mia: %+v", fw)
+	}
+	call(t, c, "PUT", ts.URL+"/api/firewall/rules/0?scope=cluster", map[string]bool{"enable": false}, nil)
+	call(t, c, "GET", ts.URL+"/api/firewall?scope=cluster", nil, &fw)
+	if fw.MiaPortOpen {
+		t.Error("regra desligada não devia contar")
+	}
+	call(t, c, "DELETE", ts.URL+"/api/firewall/rules/0?scope=cluster", nil, nil)
+	call(t, c, "PUT", ts.URL+"/api/firewall/options?scope=guest&kind=lxc&vmid=104", map[string]any{"enable": true}, nil)
+	call(t, c, "GET", ts.URL+"/api/firewall?scope=guest&kind=lxc&vmid=104", nil, &fw)
+	if !fw.Enable || len(fw.Rules) != 0 {
+		t.Errorf("guest: %+v", fw)
+	}
+}
+
+func TestTaskListAndStop(t *testing.T) {
+	ts, c := loginRoot(t)
+	var up struct {
+		UPID string `json:"upid"`
+	}
+	call(t, c, "POST", ts.URL+"/api/guests/lxc/104/migrate", map[string]string{"target": "pve-03"}, &up)
+	var tasks []taskRow
+	call(t, c, "GET", ts.URL+"/api/tasks", nil, &tasks)
+	if len(tasks) < 5 || tasks[0].StartTime < tasks[len(tasks)-1].StartTime {
+		t.Fatalf("lista/ordem: %d", len(tasks))
+	}
+	if !slices.ContainsFunc(tasks, func(x taskRow) bool { return x.Status == "job errors" }) {
+		t.Error("task com erro do demo não apareceu")
+	}
+	call(t, c, "DELETE", ts.URL+"/api/tasks/"+url.PathEscape(up.UPID), nil, nil)
+	if exit := waitTask(t, ts, c, up.UPID); exit != "interrupted by signal" {
+		t.Errorf("parar task: %q", exit)
+	}
+}

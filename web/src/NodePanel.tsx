@@ -1,7 +1,9 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "./api";
 import { bytes, bytesPair, num, pct, uptime } from "./format";
 import { IconTerminal } from "./icons";
+import { MigrateDialog } from "./Migrate";
 import { useStatus, useUI } from "./state";
 
 /** URL do pveproxy no mesmo host (o Mia roda no nó, a API do PVE na 8006). */
@@ -21,6 +23,7 @@ export function NodePanel() {
   });
 
   const load = nd?.load?.[0] ? num(parseFloat(nd.load[0])) : null;
+  const [migrating, setMigrating] = useState(false);
 
   return (
     <aside className="panel" aria-label="Nó selecionado">
@@ -89,12 +92,16 @@ export function NodePanel() {
         </>
       )}
 
+      {migrating && name && <MigrateDialog node={name} onClose={() => setMigrating(false)} />}
       {name && (
         <div className="panel-actions">
           <button className="btn-white" onClick={() => ui.openConsole({ node: name, kind: "node", title: `Shell · ${name}` })}>
             <IconTerminal width={16} height={16} /> Abrir shell
           </button>
-          <button className="btn-ghost" disabled title="Em breve">Migrar guests</button>
+          <button className="btn-ghost" disabled={nodes.filter((n) => n.online).length < 2}
+            title={nodes.length < 2 ? "Precisa de mais de um nó" : undefined} onClick={() => setMigrating(true)}>
+            Migrar guests
+          </button>
         </div>
       )}
     </aside>

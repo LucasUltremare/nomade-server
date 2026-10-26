@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/logo.svg" width="120" alt="Mia"></p>
+
 # Mia
 
 A web dashboard for Proxmox VE, part of the **Nomade** project. Run one command in the Proxmox shell and get a web app on the same host.
@@ -32,7 +34,15 @@ Unattended install: `MIA_YES=1 bash install.sh install` (also `update` and `unin
 - **Console**: node shell and LXC consoles in the browser (xterm.js over Proxmox's own `termproxy`, proxied by Mia with the user's ticket). VM consoles still open noVNC in Proxmox.
 - **Apps**: the [Proxmox VE Helper-Scripts](https://community-scripts.org) catalog (~700 apps), with search and categories. Installing runs the script in the node console so you watch it live and can answer its prompts. CPU, RAM and disk come pre-filled from the script's defaults.
 - **New LXC**: template (downloaded on the fly if needed), resources, storage, bridge, VLAN, DHCP or static IP, password or SSH key, nesting and `/dev/net/tun`, with the task log streamed live.
-- **Guests**: VM and LXC lists; detail view with start, shutdown, reboot and force stop (with confirmation), console, favorites.
+- **Guests**: VM and LXC lists; detail view with start, shutdown, reboot and force stop (with confirmation), console, favorites, and tabs for:
+  - **Hardware**: CPU, RAM and swap; disks and mount points (grow, add, move to another storage, detach, delete unused);
+  - **Firewall**: the guest's own rules.
+- **Migration**: move one guest or several from a node to another (VMs live; LXCs restart on the target).
+- **Health**: one list of what needs attention (SMART failures and SSD wear, degraded ZFS pools, stopped PVE services, pending updates, certificates about to expire, storage filling up, nodes offline, guests with no backup job), plus disk, service, update and certificate details. Updates can be run in the node console.
+- **Backups**: scheduled jobs (create, edit, enable/disable, run now, retention) and, per guest, the last backup found and whether a job covers it.
+- **Firewall**: datacenter, node and guest levels; rules with ready-made services (SSH, HTTP...), and a warning plus one-click rule if enabling the datacenter firewall would lock you out of Mia's port.
+- **Tasks**: everything that ran or is running in the cluster, with logs and stop.
+- **Notifications**: the bell shows health issues and tasks that failed in the last 24h.
 - **Network**: interfaces per node, new bridges and VLANs, pending-changes diff with apply/revert, current traffic.
 - **VPN · Tailscale**: save an auth key once, then
   - **gateway**: one click creates a small Debian LXC running Tailscale as a subnet router for the bridge's network, so everything on the LAN (including what you add later) is reachable over the VPN;
@@ -43,7 +53,7 @@ Unattended install: `MIA_YES=1 bash install.sh install` (also `update` and `unin
 
 Things that run as root on the node (app installs, Tailscale) go through the node console, so they need `root@pam` and you can read every command before and while it runs.
 
-Still placeholders: the Health/Backups/Firewall/Tasks tabs, backup jobs, guest migration and notifications.
+Not there yet: the graphical VM console (noVNC) inside Mia; it opens in Proxmox for now.
 
 ## Development
 

@@ -227,6 +227,122 @@ export interface Settings {
   tailscale: { configured: boolean; hint: string };
 }
 
+export interface Disk {
+  key: string;
+  volume: string;
+  storage: string;
+  size: number;
+  mountpoint?: string;
+  backup: boolean;
+  bind: boolean;
+  unused: boolean;
+}
+
+export interface GuestConfig {
+  node: string;
+  kind: GuestType;
+  vmid: number;
+  status: string;
+  cores: number;
+  memory: number;
+  swap: number;
+  disks: Disk[];
+  storages: { storage: string; type: string; avail: number; total: number }[];
+  pending: string[];
+}
+
+export interface HealthCheck {
+  level: "crit" | "warn" | "ok";
+  area: string;
+  title: string;
+  detail?: string;
+  node?: string;
+}
+
+export interface HealthReport {
+  checks: HealthCheck[];
+  disks: { node: string; dev: string; model: string; type: string; size: number; health: string; wearout: number; used: string }[];
+  services: { node: string; name: string; state: string; desc: string }[];
+  updates: { node: string; count: number; packages: string[] }[];
+  certs: { node: string; file: string; subject: string; notAfter: number }[];
+  at: number;
+}
+
+export interface Retention {
+  last: number;
+  daily: number;
+  weekly: number;
+  monthly: number;
+  yearly: number;
+}
+
+export interface BackupJob {
+  id: string;
+  enabled: boolean;
+  schedule: string;
+  storage: string;
+  mode: string;
+  compress: string;
+  all: boolean;
+  vmids: number[];
+  exclude: number[];
+  node: string;
+  retention: Retention;
+  comment: string;
+  nextRun: number;
+}
+
+export interface GuestBackup {
+  vmid: number;
+  name: string;
+  type: GuestType;
+  node: string;
+  last: number;
+  storage: string;
+  size: number;
+  count: number;
+  covered: boolean;
+}
+
+export interface TaskRow {
+  upid: string;
+  node: string;
+  type: string;
+  id: string;
+  user: string;
+  status: string;
+  starttime: number;
+  endtime: number;
+}
+
+export interface FwRule {
+  pos: number;
+  type: "in" | "out" | "group";
+  action: string;
+  macro: string;
+  proto: string;
+  dport: string;
+  sport: string;
+  source: string;
+  dest: string;
+  iface: string;
+  comment: string;
+  enable: boolean;
+}
+
+export interface Firewall {
+  enable: boolean;
+  policyIn: string;
+  policyOut: string;
+  rules: FwRule[];
+  miaPort?: number;
+  miaPortOpen?: boolean;
+}
+
+export type FwScope = { scope: "cluster" } | { scope: "node"; node: string } | { scope: "guest"; kind: GuestType; vmid: number };
+
+const fwQuery = (s: FwScope) => new URLSearchParams(Object.entries(s).map(([k, v]) => [k, String(v)])).toString();
+
 export interface UpdateInfo {
   current: string;
   latest: string;
@@ -311,6 +427,43 @@ export const api = {
     request<{ upid: string }>("POST", `/api/storage/${enc(node)}/${enc(storage)}/download-url`, body),
   restore: (node: string, body: { volid: string; kind: "lxc" | "qemu"; storage: string; start: boolean }) =>
     request<{ upid: string; vmid: number }>("POST", `/api/nodes/${enc(node)}/restore`, body),
+
+  guestConfig: (g: Pick<Guest, "type" | "vmid">) => request<GuestConfig>("GET", `/api/guests/${g.type}/${g.vmid}/config`),
+  guestResources: (g: Pick<Guest, "type" | "vmid">, body: { cores: number; memory: number; swap: number }) =>
+    request<{ upid: string }>("PUT", `/api/guests/${g.type}/${g.vmid}/resources`, body),
+  diskResize: (g: Pick<Guest, "type" | "vmid">, disk: string, add: number) =>
+    request<{ upid: string }>("POST", `/api/guests/${g.type}/${g.vmid}/disks/resize`, { disk, add }),
+  diskAdd: (g: Pick<Guest, "type" | "vmid">, body: { storage: string; size: number; path: string; backup: boolean }) =>
+    request<{ upid: string; key: string }>("POST", `/api/guests/${g.type}/${g.vmid}/disks/add`, body),
+  diskMove: (g: Pick<Guest, "type" | "vmid">, disk: string, storage: string) =>
+    request<{ upid: string }>("POST", `/api/guests/${g.type}/${g.vmid}/disks/move`, { disk, storage }),
+  diskRemove: (g: Pick<Guest, "type" | "vmid">, disk: string) =>
+    request<{ upid: string }>("DELETE", `/api/guests/${g.type}/${g.vmid}/disks/${disk}`),
+  migrate: (g: Pick<Guest, "type" | "vmid">, target: string) =>
+    request<{ upid: string }>("POST", `/api/guests/${g.type}/${g.vmid}/migrate`, { target }),
+
+  health: () => request<HealthReport>("GET", "/api/health"),
+  aptRefresh: (node: string) => request<{ upid: string }>("POST", `/api/nodes/${enc(node)}/apt/refresh`),
+
+  jobs: () => request<BackupJob[]>("GET", "/api/backup/jobs"),
+  saveJob: (j: Partial<BackupJob>) =>
+    request<{ ok: boolean }>(j.id ? "PUT" : "POST", j.id ? `/api/backup/jobs/${enc(j.id)}` : "/api/backup/jobs", j),
+  deleteJob: (id: string) => request<{ ok: boolean }>("DELETE", `/api/backup/jobs/${enc(id)}`),
+  runJob: (id: string) =>
+    request<{ tasks: { node: string; upid?: string; error?: string }[] }>("POST", `/api/backup/jobs/${enc(id)}/run`),
+  backupStatus: () => request<GuestBackup[]>("GET", "/api/backup/status"),
+
+  tasks: () => request<TaskRow[]>("GET", "/api/tasks"),
+  stopTask: (upid: string) => request<{ ok: boolean }>("DELETE", `/api/tasks/${enc(upid)}`),
+
+  firewall: (s: FwScope) => request<Firewall>("GET", `/api/firewall?${fwQuery(s)}`),
+  firewallOptions: (s: FwScope, body: { enable?: boolean; policyIn?: string; policyOut?: string }) =>
+    request<{ ok: boolean }>("PUT", `/api/firewall/options?${fwQuery(s)}`, body),
+  firewallAdd: (s: FwScope, rule: Partial<FwRule>) => request<{ ok: boolean }>("POST", `/api/firewall/rules?${fwQuery(s)}`, rule),
+  firewallToggle: (s: FwScope, pos: number, enable: boolean) =>
+    request<{ ok: boolean }>("PUT", `/api/firewall/rules/${pos}?${fwQuery(s)}`, { enable }),
+  firewallDelete: (s: FwScope, pos: number) => request<{ ok: boolean }>("DELETE", `/api/firewall/rules/${pos}?${fwQuery(s)}`),
+  firewallMacros: () => request<{ macro: string; descr: string }[]>("GET", "/api/firewall/macros"),
 
   settings: () => request<Settings>("GET", "/api/settings"),
   setTailscaleKey: (authKey: string) => request<Settings>("PUT", "/api/settings/tailscale", { authKey }),

@@ -1,8 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type Guest } from "./api";
 import { HOT, bytes, bytesPair, health, kindLabel, pct, uptime } from "./format";
 import { IconExternal, IconNetwork, IconPlay, IconPower, IconRestart, IconStar, IconStop, IconTerminal, IconX } from "./icons";
+import { FirewallPanel } from "./Firewall";
+import { GuestHardware } from "./GuestHardware";
+import { MigrateDialog } from "./Migrate";
 import { pveURL } from "./NodePanel";
 import { navigate } from "./router";
 import { useFavorites, useGuests, useSettings, useStatus, useUI } from "./state";
@@ -26,12 +30,15 @@ export function Modal({ label, onClose, children, className = "" }: {
       prev?.focus?.();
     };
   }, []);
-  return (
+  // Portal no body: diálogo aberto de dentro do painel azul (sticky, cria
+  // contexto de empilhamento e texto branco) não herda nada dele.
+  return createPortal(
     <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className={`dialog ${className}`} role="dialog" aria-modal="true" aria-label={label} ref={ref}>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -67,6 +74,10 @@ export function GuestDialog() {
   const [armed, setArmed] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
   const [exposing, setExposing] = useState(false);
+  const [tab, setTab] = useState<"resumo" | "hardware" | "firewall">("resumo");
+  const [migrating, setMigrating] = useState(false);
+  const { data: status } = useStatus();
+  const multiNode = (status?.nodes ?? []).filter((n) => n.online).length > 1;
   const g = guests?.find((x) => x.id === ui.guestId);
 
   const run = useMutation({
@@ -83,6 +94,8 @@ export function GuestDialog() {
     setArmed(null);
     setDone(null);
     setExposing(false);
+    setTab("resumo");
+    setMigrating(false);
     run.reset();
   };
   if (!g) {
@@ -95,14 +108,23 @@ export function GuestDialog() {
 
   const isFav = favs.ids.includes(g.id);
   const hot = g.cpu >= HOT;
+  if (migrating) return <MigrateDialog node={g.node} only={g} onClose={() => setMigrating(false)} />;
   return (
-    <Modal label={g.name} onClose={close}>
+    <Modal label={g.name} onClose={close} className={tab === "resumo" ? "" : "wide"}>
       <button className="close" onClick={close} aria-label="Fechar"><IconX /></button>
       <h2>{g.name}</h2>
       <div className="dialog-sub">
         {kindLabel(g)} {g.vmid} · {g.node} · <span className={`dot ${health(g)}`} style={{ display: "inline-block", verticalAlign: 1 }} /> {g.status}
         {g.template ? " · template" : ""}
       </div>
+      <div className="seg dialog-tabs" role="tablist">
+        <button role="tab" aria-pressed={tab === "resumo"} onClick={() => setTab("resumo")}>Resumo</button>
+        <button role="tab" aria-pressed={tab === "hardware"} onClick={() => setTab("hardware")}>Hardware</button>
+        <button role="tab" aria-pressed={tab === "firewall"} onClick={() => setTab("firewall")}>Firewall</button>
+      </div>
+      {tab === "hardware" && <GuestHardware g={g} />}
+      {tab === "firewall" && <FirewallPanel scope={{ scope: "guest", kind: g.type, vmid: g.vmid }} />}
+      {tab === "resumo" && <>
 
       {g.status === "running" && (
         <div className="meters">
@@ -157,6 +179,9 @@ export function GuestDialog() {
         <button className="btn" onClick={() => favs.toggle(g.id)} aria-pressed={isFav}>
           <IconStar width={15} height={15} fill={isFav ? "currentColor" : "none"} /> {isFav ? "Favorito" : "Favoritar"}
         </button>
+        {multiNode && !g.template && (
+          <button className="btn" onClick={() => setMigrating(true)}>Migrar</button>
+        )}
         <a className="btn" href={pveURL(`#v1:0:=${g.type}%2F${g.vmid}`)} target="_blank" rel="noreferrer">
           <IconExternal width={15} height={15} /> Abrir no Proxmox
         </a>
@@ -164,6 +189,7 @@ export function GuestDialog() {
       {exposing && <ExposeForm g={g} onDone={close} />}
       {run.error && <div className="err">{(run.error as Error).message}</div>}
       {done && !run.error && <div className="ok-msg">{done}</div>}
+      </>}
     </Modal>
   );
 }

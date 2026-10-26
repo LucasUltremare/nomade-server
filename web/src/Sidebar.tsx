@@ -5,6 +5,7 @@ import {
   IconApps, IconDownload, IconHome, IconLXC, IconLogout, IconNetwork, IconNodes, IconSearch, IconShield, IconSidebar,
   IconStorage, IconTerminal, IconVM,
 } from "./icons";
+import { MiaMark } from "./Logo";
 import { Link, usePath } from "./router";
 import { useFavorites, useGuests, useMe, useStatus, useUI } from "./state";
 import { UpdateNotice } from "./Update";
@@ -41,7 +42,7 @@ export function Sidebar({ onToggle }: { onToggle: () => void }) {
     <aside className="side" aria-label="Navegação">
       <div className="brand">
         <div className="brand-logo">
-          <svg width="16" height="14" viewBox="0 0 16 14" aria-hidden="true"><path d="M0 14V0h2.7L8 7.4 13.3 0H16v14h-2.9V5L8 12 2.9 5v9z" fill="#fff" /></svg>
+          <MiaMark width={20} height={19} />
         </div>
         <div className="brand-text">
           <div className="brand-name">Mia</div>

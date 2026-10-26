@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./api";
+import { MiaMark } from "./Logo";
 
 export function Login() {
   const qc = useQueryClient();
@@ -40,7 +41,7 @@ export function Login() {
   return (
     <div className="login">
       <div className="login-art">
-        <div className="brand-name" style={{ fontSize: 20 }}>Mia</div>
+        <MiaMark className="login-mark" />
         <h1>Seu Proxmox, num painel que dá gosto de abrir.</h1>
         <span className="mono">nomade · {meta?.version ?? ""}</span>
       </div>

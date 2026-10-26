@@ -2,16 +2,21 @@ import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ApiError, setUnauthorizedHandler } from "./api";
 import { AppsPage } from "./Apps";
+import { BackupsPage } from "./Backups";
+import { FirewallPage } from "./Firewall";
+import { HealthPage } from "./Health";
+import { Notifications } from "./Notifications";
+import { TasksPage } from "./Tasks";
 import { ConsoleModal, ConsolePage } from "./Console";
 import { BackupDialog, GuestDialog, SearchPalette } from "./Dialogs";
 import { NetworkPage } from "./Network";
 import { NewLxcDialog } from "./NewLxc";
 import { StoragePage } from "./Storage";
-import { IconBell, IconCalendar, IconSidebar } from "./icons";
+import { IconCalendar, IconSidebar } from "./icons";
 import { Login } from "./Login";
 import { NodePanel } from "./NodePanel";
 import { GuestsPage, NodesPage, OverviewPage, SoonPage } from "./Pages";
-import { usePath } from "./router";
+import { navigate, usePath } from "./router";
 import { NAV, Sidebar } from "./Sidebar";
 import { UIProvider, useMe, useUI } from "./state";
 
@@ -75,12 +80,14 @@ function Shell() {
   };
 
   const current = NAV.find((n) => n.path === path) ?? NAV[0];
-  const withPanel = path === "/" || path === "/nos";
+  const withPanel = (path === "/" && tab === "Recursos") || path === "/nos";
 
   let page;
   switch (path) {
     case "/":
-      page = tab === "Recursos" ? <OverviewPage /> : <SoonPage title={tab} what={TAB_SOON[tab]} />;
+      page = {
+        Recursos: <OverviewPage />, Saúde: <HealthPage />, Backups: <BackupsPage />, Firewall: <FirewallPage />, Tarefas: <TasksPage />,
+      }[tab] ?? <OverviewPage />;
       break;
     case "/nos": page = <NodesPage />; break;
     case "/vms": page = <GuestsPage type="qemu" />; break;
@@ -88,7 +95,7 @@ function Shell() {
     case "/apps": page = <AppsPage />; break;
     case "/armazenamento": page = <StoragePage />; break;
     case "/rede": page = <NetworkPage />; break;
-    case "/backups": page = <SoonPage title="Backups" what="Jobs agendados e histórico do vzdump. Os arquivos de backup e a restauração já estão em Armazenamento." />; break;
+    case "/backups": page = <BackupsPage />; break;
     case "/console": page = <ConsolePage />; break;
     default: page = <SoonPage title="Não encontrado" what="Essa página não existe." />;
   }
@@ -112,9 +119,7 @@ function Shell() {
           )}
           <div className="top-actions" style={path === "/" ? undefined : { marginLeft: "auto" }}>
             <span className="chip-btn date"><IconCalendar width={15} height={15} />{now}</span>
-            <button className="chip-btn square" aria-label="Notificações" title="Notificações (em breve)">
-              <IconBell width={16} height={16} />
-            </button>
+            <Notifications onOpen={(t) => { navigate("/"); setTab(t); }} />
           </div>
         </header>
         {page}
@@ -129,12 +134,6 @@ function Shell() {
   );
 }
 
-const TAB_SOON: Record<string, string> = {
-  Saúde: "Alertas de disco, SMART, ZFS, serviços do PVE e atualizações pendentes.",
-  Backups: "Última execução de cada guest, falhas e guests sem backup.",
-  Firewall: "Regras do datacenter, dos nós e dos guests.",
-  Tarefas: "Tudo que está rodando ou rodou no cluster, com log.",
-};
 
 function useClock() {
   const fmt = () => {

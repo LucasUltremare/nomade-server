@@ -133,6 +133,9 @@ type Server struct {
 	tasksBy map[string]*task     // tasks com log (criar CT, baixar template...)
 	nets    map[string]*netState
 	vols    map[string][]volume // "node/storage" -> conteúdo
+	confs   map[int]map[string]string
+	jobs    []map[string]string
+	fw      map[string]*fwState
 	srv     *httptest.Server
 }
 
@@ -148,6 +151,7 @@ func Start() *Server {
 	s := &Server{status: map[int]string{}, running: map[string]time.Time{}, tasksBy: map[string]*task{},
 		list: append([]*guest(nil), guests...)}
 	s.initManage()
+	s.initExtra()
 	for _, g := range s.list {
 		st := g.status
 		if st == "" {
@@ -172,6 +176,7 @@ func Start() *Server {
 	mux.HandleFunc("POST /api2/json/nodes/{node}/vzdump", s.auth(s.vzdump))
 	mux.HandleFunc("POST /api2/json/nodes/{node}/{kind}/{vmid}/status/{action}", s.auth(s.guestAction))
 	s.routesManage(mux)
+	s.routesExtra(mux)
 	s.srv = httptest.NewTLSServer(mux)
 	return s
 }
