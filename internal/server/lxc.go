@@ -47,9 +47,9 @@ func (s *Server) handleTask(w http.ResponseWriter, r *http.Request, a pve.Auth) 
 // --- criar LXC ---
 
 type tmplView struct {
-	Volid string `json:"volid"`
-	Name  string `json:"name"`
-	Size  int64  `json:"size"`
+	Volid string  `json:"volid"`
+	Name  string  `json:"name"`
+	Size  pve.Int `json:"size"`
 }
 
 type aplView struct {
@@ -60,10 +60,10 @@ type aplView struct {
 }
 
 type storageOpt struct {
-	Storage string `json:"storage"`
-	Type    string `json:"type"`
-	Avail   int64  `json:"avail"`
-	Total   int64  `json:"total"`
+	Storage string  `json:"storage"`
+	Type    string  `json:"type"`
+	Avail   pve.Int `json:"avail"`
+	Total   pve.Int `json:"total"`
 }
 
 type bridgeView struct {
@@ -132,8 +132,8 @@ func (s *Server) handleLXCOptions(w http.ResponseWriter, r *http.Request, a pve.
 		go func() {
 			defer wg.Done()
 			var content []struct {
-				Volid string `json:"volid"`
-				Size  int64  `json:"size"`
+				Volid string  `json:"volid"`
+				Size  pve.Int `json:"size"`
 			}
 			path := fmt.Sprintf("/nodes/%s/storage/%s/content", url.PathEscape(node), url.PathEscape(ts.Storage))
 			if s.pve.Get(ctx, &a, path, url.Values{"content": {"vztmpl"}}, &content) == nil {

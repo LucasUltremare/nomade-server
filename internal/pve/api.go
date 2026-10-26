@@ -34,6 +34,20 @@ func (n *Num) UnmarshalJSON(raw []byte) error {
 	return nil
 }
 
+// Int é um inteiro que aceita número, número em string ou null. O PVE é
+// escrito em Perl e, dependendo do plugin de storage, manda ctime, size etc.
+// como texto.
+type Int int64
+
+func (n *Int) UnmarshalJSON(raw []byte) error {
+	var f Num
+	if err := f.UnmarshalJSON(raw); err != nil {
+		return err
+	}
+	*n = Int(f)
+	return nil
+}
+
 type Version struct {
 	Version string `json:"version"`
 	Release string `json:"release"`
@@ -136,15 +150,15 @@ type Task struct {
 	Node      string `json:"node"`
 	User      string `json:"user"`
 	Status    string `json:"status"`
-	StartTime int64  `json:"starttime"`
-	EndTime   int64  `json:"endtime"`
+	StartTime Int    `json:"starttime"`
+	EndTime   Int    `json:"endtime"`
 }
 
 type ZFSPool struct {
 	Name   string `json:"name"`
-	Size   int64  `json:"size"`
-	Alloc  int64  `json:"alloc"`
-	Free   int64  `json:"free"`
+	Size   Int    `json:"size"`
+	Alloc  Int    `json:"alloc"`
+	Free   Int    `json:"free"`
 	Health string `json:"health"`
 }
 
@@ -152,9 +166,9 @@ type Storage struct {
 	Storage string `json:"storage"`
 	Type    string `json:"type"`
 	Content string `json:"content"`
-	Total   int64  `json:"total"`
-	Used    int64  `json:"used"`
-	Avail   int64  `json:"avail"`
+	Total   Int    `json:"total"`
+	Used    Int    `json:"used"`
+	Avail   Int    `json:"avail"`
 	Active  Bool   `json:"active"`
 	Enabled Bool   `json:"enabled"`
 	Shared  Bool   `json:"shared"`
@@ -275,7 +289,7 @@ type TaskStatus struct {
 	ExitStatus string `json:"exitstatus"`
 	Type       string `json:"type"`
 	ID         string `json:"id"`
-	StartTime  int64  `json:"starttime"`
+	StartTime  Int    `json:"starttime"`
 }
 
 type TaskLine struct {

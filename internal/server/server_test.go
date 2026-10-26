@@ -581,3 +581,16 @@ func TestTaskListAndStop(t *testing.T) {
 		t.Errorf("parar task: %q", exit)
 	}
 }
+
+// O PVE manda ctime/size como texto em alguns storages (ex.: PBS); quebrou
+// a tela de Armazenamento na v0.3.0.
+func TestStorageContentStringNumbers(t *testing.T) {
+	ts, c := loginRoot(t)
+	var vols []volumeView
+	if code := call(t, c, "GET", ts.URL+"/api/storage/pve-01/nas-backup/content", nil, &vols); code != 200 {
+		t.Fatalf("conteúdo do nas-backup: %d", code)
+	}
+	if len(vols) == 0 || vols[0].CTime == 0 || vols[0].Size == 0 {
+		t.Fatalf("ctime/size não foram lidos: %+v", vols)
+	}
+}

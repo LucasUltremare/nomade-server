@@ -311,6 +311,10 @@ func (s *Server) content(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		row := map[string]any{"volid": v.volid, "content": v.content, "format": v.format, "size": v.size, "ctime": v.ctime}
+		if strings.HasPrefix(v.volid, "nas-backup:") {
+			// Igual a alguns plugins do PVE real: números como texto.
+			row["ctime"], row["size"] = strconv.FormatInt(v.ctime, 10), strconv.FormatInt(v.size, 10)
+		}
 		if v.vmid > 0 {
 			row["vmid"] = v.vmid
 		}

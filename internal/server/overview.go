@@ -467,14 +467,14 @@ func aggregateNodes(byNode map[string][]pve.RRDPoint, from, to int64) trendView 
 func backupWindows(tasks []pve.Task, from, to int64) [][2]int64 {
 	var iv [][2]int64
 	for _, t := range tasks {
-		end := t.EndTime
+		start, end := int64(t.StartTime), int64(t.EndTime)
 		if end == 0 {
 			end = to // ainda rodando
 		}
-		if end < from || t.StartTime > to {
+		if end < from || start > to {
 			continue
 		}
-		iv = append(iv, [2]int64{max(t.StartTime, from), min(end, to)})
+		iv = append(iv, [2]int64{max(start, from), min(end, to)})
 	}
 	slices.SortFunc(iv, func(x, y [2]int64) int { return cmp.Compare(x[0], y[0]) })
 	out := [][2]int64{}
@@ -530,10 +530,10 @@ func mean(xs []float64) float64 {
 // --- /api/nodes/{node} ---
 
 type poolView struct {
-	Name  string `json:"name"`
-	Kind  string `json:"kind"` // zfs | storage
-	Used  int64  `json:"used"`
-	Total int64  `json:"total"`
+	Name  string  `json:"name"`
+	Kind  string  `json:"kind"` // zfs | storage
+	Used  pve.Int `json:"used"`
+	Total pve.Int `json:"total"`
 }
 
 type nodeDetail struct {

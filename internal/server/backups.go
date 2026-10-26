@@ -300,15 +300,15 @@ func (s *Server) handleJobRun(w http.ResponseWriter, r *http.Request, a pve.Auth
 }
 
 type guestBackup struct {
-	VMID    int    `json:"vmid"`
-	Name    string `json:"name"`
-	Type    string `json:"type"`
-	Node    string `json:"node"`
-	Last    int64  `json:"last"` // 0 = nunca
-	Storage string `json:"storage"`
-	Size    int64  `json:"size"`
-	Count   int    `json:"count"`
-	Covered bool   `json:"covered"` // algum job inclui
+	VMID    int     `json:"vmid"`
+	Name    string  `json:"name"`
+	Type    string  `json:"type"`
+	Node    string  `json:"node"`
+	Last    pve.Int `json:"last"` // 0 = nunca
+	Storage string  `json:"storage"`
+	Size    pve.Int `json:"size"`
+	Count   int     `json:"count"`
+	Covered bool    `json:"covered"` // algum job inclui
 }
 
 // handleBackupStatus varre o conteúdo "backup" dos storages e cruza com os guests.
@@ -337,8 +337,8 @@ func (s *Server) handleBackupStatus(w http.ResponseWriter, r *http.Request, a pv
 	}
 	type vol struct {
 		VMID  pve.Num `json:"vmid"`
-		CTime int64   `json:"ctime"`
-		Size  int64   `json:"size"`
+		CTime pve.Int `json:"ctime"`
+		Size  pve.Int `json:"size"`
 	}
 	var (
 		mu   sync.Mutex
@@ -402,14 +402,14 @@ func (s *Server) handleBackupStatus(w http.ResponseWriter, r *http.Request, a pv
 // --- tarefas ---
 
 type taskRow struct {
-	UPID      string `json:"upid"`
-	Node      string `json:"node"`
-	Type      string `json:"type"`
-	ID        string `json:"id"`
-	User      string `json:"user"`
-	Status    string `json:"status"` // "" rodando, "OK", ou a mensagem de erro
-	StartTime int64  `json:"starttime"`
-	EndTime   int64  `json:"endtime"`
+	UPID      string  `json:"upid"`
+	Node      string  `json:"node"`
+	Type      string  `json:"type"`
+	ID        string  `json:"id"`
+	User      string  `json:"user"`
+	Status    string  `json:"status"` // "" rodando, "OK", ou a mensagem de erro
+	StartTime pve.Int `json:"starttime"`
+	EndTime   pve.Int `json:"endtime"`
 }
 
 func (s *Server) handleTaskList(w http.ResponseWriter, r *http.Request, a pve.Auth) {

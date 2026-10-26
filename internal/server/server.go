@@ -460,8 +460,8 @@ type backupStorage struct {
 	Storage string   `json:"storage"`
 	Type    string   `json:"type"`
 	Shared  bool     `json:"shared"`
-	Avail   int64    `json:"avail"`
-	Total   int64    `json:"total"`
+	Avail   pve.Int  `json:"avail"`
+	Total   pve.Int  `json:"total"`
 	Nodes   []string `json:"nodes"`
 }
 

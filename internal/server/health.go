@@ -27,14 +27,14 @@ type check struct {
 }
 
 type diskHealth struct {
-	Node    string `json:"node"`
-	Dev     string `json:"dev"`
-	Model   string `json:"model"`
-	Type    string `json:"type"`
-	Size    int64  `json:"size"`
-	Health  string `json:"health"`
-	Wearout int    `json:"wearout"` // % já gasto (-1 = sem dado)
-	Used    string `json:"used"`
+	Node    string  `json:"node"`
+	Dev     string  `json:"dev"`
+	Model   string  `json:"model"`
+	Type    string  `json:"type"`
+	Size    pve.Int `json:"size"`
+	Health  string  `json:"health"`
+	Wearout int     `json:"wearout"` // % já gasto (-1 = sem dado)
+	Used    string  `json:"used"`
 }
 
 type serviceHealth struct {
@@ -51,10 +51,10 @@ type updatesHealth struct {
 }
 
 type certHealth struct {
-	Node     string `json:"node"`
-	File     string `json:"file"`
-	Subject  string `json:"subject"`
-	NotAfter int64  `json:"notAfter"`
+	Node     string  `json:"node"`
+	File     string  `json:"file"`
+	Subject  string  `json:"subject"`
+	NotAfter pve.Int `json:"notAfter"`
 }
 
 type healthReport struct {
@@ -155,7 +155,7 @@ func (s *Server) buildHealth(ctx context.Context, a pve.Auth) (*healthReport, er
 				DevPath string  `json:"devpath"`
 				Model   string  `json:"model"`
 				Type    string  `json:"type"`
-				Size    int64   `json:"size"`
+				Size    pve.Int `json:"size"`
 				Health  string  `json:"health"`
 				Wearout pve.Num `json:"wearout"`
 				Used    string  `json:"used"`
@@ -250,9 +250,9 @@ func (s *Server) buildHealth(ctx context.Context, a pve.Auth) (*healthReport, er
 		go func() {
 			defer wg.Done()
 			var certs []struct {
-				Filename string `json:"filename"`
-				Subject  string `json:"subject"`
-				NotAfter int64  `json:"notafter"`
+				Filename string  `json:"filename"`
+				Subject  string  `json:"subject"`
+				NotAfter pve.Int `json:"notafter"`
 			}
 			if s.pve.Get(ctx, &a, "/nodes/"+url.PathEscape(n)+"/certificates/info", nil, &certs) != nil {
 				return
@@ -264,7 +264,7 @@ func (s *Server) buildHealth(ctx context.Context, a pve.Auth) (*healthReport, er
 				mu.Lock()
 				rep.Certs = append(rep.Certs, certHealth{Node: n, File: c.Filename, Subject: c.Subject, NotAfter: c.NotAfter})
 				mu.Unlock()
-				left := time.Until(time.Unix(c.NotAfter, 0))
+				left := time.Until(time.Unix(int64(c.NotAfter), 0))
 				switch {
 				case left < 0:
 					add(check{Level: "crit", Area: "certificados", Node: n, Title: "Certificado vencido em " + n, Detail: c.Filename})

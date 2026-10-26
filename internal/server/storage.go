@@ -24,9 +24,9 @@ type storageRow struct {
 	Storage string   `json:"storage"`
 	Type    string   `json:"type"`
 	Content []string `json:"content"`
-	Used    int64    `json:"used"`
-	Total   int64    `json:"total"`
-	Avail   int64    `json:"avail"`
+	Used    pve.Int  `json:"used"`
+	Total   pve.Int  `json:"total"`
+	Avail   pve.Int  `json:"avail"`
 	Shared  bool     `json:"shared"`
 	Active  bool     `json:"active"`
 }
@@ -70,16 +70,16 @@ func (s *Server) handleStorageList(w http.ResponseWriter, r *http.Request, a pve
 }
 
 type volumeView struct {
-	Volid     string `json:"volid"`
-	Name      string `json:"name"`
-	Content   string `json:"content"`
-	Subtype   string `json:"subtype"` // backups: lxc | qemu
-	Format    string `json:"format"`
-	Size      int64  `json:"size"`
-	CTime     int64  `json:"ctime"`
-	VMID      int    `json:"vmid"`
-	Notes     string `json:"notes"`
-	Protected bool   `json:"protected"`
+	Volid     string  `json:"volid"`
+	Name      string  `json:"name"`
+	Content   string  `json:"content"`
+	Subtype   string  `json:"subtype"` // backups: lxc | qemu
+	Format    string  `json:"format"`
+	Size      pve.Int `json:"size"`
+	CTime     pve.Int `json:"ctime"`
+	VMID      int     `json:"vmid"`
+	Notes     string  `json:"notes"`
+	Protected bool    `json:"protected"`
 }
 
 func storagePath(r *http.Request) string {
@@ -96,8 +96,8 @@ func (s *Server) handleStorageContent(w http.ResponseWriter, r *http.Request, a 
 		Content   string   `json:"content"`
 		Subtype   string   `json:"subtype"`
 		Format    string   `json:"format"`
-		Size      int64    `json:"size"`
-		CTime     int64    `json:"ctime"`
+		Size      pve.Int  `json:"size"`
+		CTime     pve.Int  `json:"ctime"`
 		VMID      pve.Num  `json:"vmid"`
 		Notes     string   `json:"notes"`
 		Protected pve.Bool `json:"protected"`
