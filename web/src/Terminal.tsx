@@ -11,6 +11,8 @@ export interface ConsoleTarget {
   title: string;
   /** Comando digitado assim que o shell responder (loja de apps, Tailscale). */
   autorun?: string;
+  /** Terminal especial do PVE (só no nó): "upgrade" abre já atualizando. */
+  cmd?: "upgrade";
 }
 
 type Status = "connecting" | "connected" | "closed" | "error";
@@ -73,7 +75,7 @@ export function Terminal({ target, onStatus }: { target: ConsoleTarget; onStatus
 
     update("connecting");
     api
-      .console(target.node, target.kind, target.vmid ?? 0)
+      .console(target.node, target.kind, target.vmid ?? 0, target.cmd)
       .then((t) => {
         if (disposed) return;
         const q = new URLSearchParams({
@@ -124,7 +126,7 @@ export function Terminal({ target, onStatus }: { target: ConsoleTarget; onStatus
       ws?.close();
       term.dispose();
     };
-  }, [target.node, target.kind, target.vmid, target.autorun, attempt]);
+  }, [target.node, target.kind, target.vmid, target.autorun, target.cmd, attempt]);
 
   return (
     <div className="term-wrap">

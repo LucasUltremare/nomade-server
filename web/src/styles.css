@@ -804,3 +804,63 @@ td .cell-bar.hot i { background: var(--hot); }
   .snap-form { grid-template-columns: 1fr; }
   .snap-list li { flex-wrap: wrap; }
 }
+
+/* ---------- Dock de consoles ---------- */
+.console-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+.console-actions .btn { background: #222428; border-color: #34363b; color: #e6e6e6; }
+.console-actions .btn.danger { color: #ffb4a0; }
+.console-head .close { margin-left: 0; }
+.console-warn { color: #ffcf9e; font-size: 12px; padding: 0 6px 8px; }
+.console-dock {
+  position: fixed; right: 16px; bottom: 16px; z-index: 45; display: flex; flex-direction: column; gap: 6px; max-width: min(380px, calc(100vw - 32px));
+}
+.dock-item { display: flex; align-items: center; background: #16171a; color: #e6e6e6; border-radius: 10px; box-shadow: var(--shadow-pop); overflow: hidden; }
+.dock-open { flex: 1; min-width: 0; display: flex; gap: 8px; align-items: center; background: none; border: 0; color: inherit; padding: 10px 12px; text-align: left; font-size: 13px; }
+.dock-open:hover { background: #222428; }
+.dock-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dock-open .mono { font-size: 11px; color: #8d919a; }
+.dock-x { background: none; border: 0; color: #8d919a; padding: 10px; display: grid; }
+.dock-x:hover { color: #fff; background: #2a2c31; }
+
+/* ---------- Guest: abas largas, rede, opções ---------- */
+.dialog.xl { max-width: 780px; }
+.dialog-tabs { overflow-x: auto; flex-wrap: nowrap; scrollbar-width: none; }
+.dialog-tabs button { white-space: nowrap; }
+.disk.net { grid-template-columns: minmax(0, 1fr) auto auto; }
+.net-form { grid-column: 1 / -1; border-top: 1px solid var(--line); padding-top: 4px; }
+.vm-settings { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 10px; align-items: end; }
+.vm-settings .btn { margin-bottom: 4px; justify-self: start; }
+.disk-add .span-all { grid-column: 1 / -1; }
+.field textarea { border: 1px solid var(--line-strong); border-radius: 8px; padding: 10px 12px; background: var(--bg); font: inherit; font-size: 13px; resize: vertical; color: var(--ink); }
+.gopts .checks { margin-top: 6px; }
+
+/* ---------- Página do nó ---------- */
+.back { background: none; border: 0; padding: 0; color: var(--ink-3); font-size: 12px; margin-bottom: 6px; }
+.back:hover { color: var(--ink); }
+.page-tabs { margin-top: 18px; border-bottom: 1px solid var(--line); padding-top: 0; }
+.page-tabs button { margin-bottom: -1px; }
+.repo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin-top: 16px; }
+.repo { min-height: 0; gap: 6px; }
+.repo-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.repo-head b { font-weight: 500; font-size: 14px; }
+.repo .muted { font-size: 12px; }
+
+/* ---------- Meus apps ---------- */
+.myapps { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; margin-top: 20px; }
+.app-tile { background: var(--bg-sunken); border-radius: 12px; display: flex; flex-direction: column; border: 1px solid transparent; }
+.app-tile.down { border-color: color-mix(in srgb, var(--hot) 45%, transparent); }
+.app-tile.off, .app-tile.hidden { opacity: 0.6; }
+.app-tile-main { display: flex; gap: 12px; align-items: center; padding: 14px; text-decoration: none; color: var(--ink); border-radius: 12px 12px 0 0; }
+.app-tile-main:hover { background: var(--bg-hover); }
+.app-tile-main img, .app-tile-main .app-logo { border-radius: 10px; object-fit: contain; background: var(--bg); padding: 4px; flex: none; }
+.app-tile-main div { display: grid; gap: 2px; min-width: 0; }
+.app-tile-main b { font-weight: 500; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app-tile-main .mono { font-size: 11px; }
+.app-tile-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 12px 12px; font-size: 12px; flex-wrap: wrap; }
+.app-tile-actions { display: flex; gap: 4px; flex-wrap: wrap; }
+.app-tile-actions .btn { height: 26px; padding: 0 8px; font-size: 11px; }
+
+@media (max-width: 860px) {
+  .vm-settings { grid-template-columns: 1fr; }
+  .console-actions .btn { display: none; }
+}

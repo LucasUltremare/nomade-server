@@ -126,18 +126,20 @@ func inBackup(nodeName string, t int64) bool {
 }
 
 type Server struct {
-	mu      sync.Mutex
-	list    []*guest // guests do demo (cresce quando cria LXC/instala app)
-	status  map[int]string
-	running map[string]time.Time // upid -> fim, de tasks disparadas no demo
-	tasksBy map[string]*task     // tasks com log (criar CT, baixar template...)
-	nets    map[string]*netState
-	vols    map[string][]volume // "node/storage" -> conteúdo
-	confs   map[int]map[string]string
-	jobs    []map[string]string
-	fw      map[string]*fwState
-	snaps   map[int][]snap
-	srv     *httptest.Server
+	mu       sync.Mutex
+	list     []*guest // guests do demo (cresce quando cria LXC/instala app)
+	status   map[int]string
+	running  map[string]time.Time // upid -> fim, de tasks disparadas no demo
+	tasksBy  map[string]*task     // tasks com log (criar CT, baixar template...)
+	nets     map[string]*netState
+	vols     map[string][]volume // "node/storage" -> conteúdo
+	confs    map[int]map[string]string
+	jobs     []map[string]string
+	fw       map[string]*fwState
+	snaps    map[int][]snap
+	aptRepos map[string][]repo
+	termCmd  map[string]string // ticket do termproxy -> cmd (ex.: upgrade)
+	srv      *httptest.Server
 }
 
 // guests devolve uma cópia da lista atual.
@@ -180,6 +182,7 @@ func Start() *Server {
 	s.routesManage(mux)
 	s.routesExtra(mux)
 	s.routesVM(mux)
+	s.routesPhase1(mux)
 	s.srv = httptest.NewTLSServer(mux)
 	return s
 }
@@ -451,6 +454,10 @@ func (s *Server) guestRRD(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) tasks(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("node")
+	if vmid := r.URL.Query().Get("vmid"); vmid != "" {
+		s.guestTasks(w, name, vmid)
+		return
+	}
 	since, _ := strconv.ParseInt(r.URL.Query().Get("since"), 10, 64)
 	now := time.Now()
 	out := []map[string]any{}
@@ -580,6 +587,34 @@ func (s *Server) guestAction(w http.ResponseWriter, r *http.Request) {
 		s.status[vmid] = "stopped"
 	case "suspend":
 		s.status[vmid] = "paused"
+		if r.FormValue("todisk") == "1" {
+			s.status[vmid] = "stopped" // hibernada
+		}
 	}
 	reply(w, fmt.Sprintf("UPID:%s:%X:qm%s:%d:root@pam:", r.PathValue("node"), time.Now().UnixNano(), action, vmid))
+}
+
+// guestTasks: histórico de um guest (o que rodou no demo + umas antigas).
+func (s *Server) guestTasks(w http.ResponseWriter, node, vmid string) {
+	now := time.Now()
+	out := []map[string]any{}
+	add := func(typ, status string, start time.Time, dur time.Duration) {
+		out = append(out, map[string]any{"upid": fmt.Sprintf("UPID:%s:%08X:%08X:%08X:%s:%s:root@pam:", node, start.Unix()%0xFFFFFF, 0, start.Unix(), typ, vmid),
+			"node": node, "type": typ, "id": vmid, "user": "root@pam", "starttime": start.Unix(), "endtime": start.Add(dur).Unix(), "status": status})
+	}
+	add("vzstart", "OK", now.Add(-6*24*time.Hour), 3*time.Second)
+	add("vzdump", "OK", now.Add(-26*time.Hour), 4*time.Minute)
+	add("vzdump", "OK", now.Add(-2*time.Hour), 4*time.Minute)
+	s.mu.Lock()
+	for upid, t := range s.tasksBy {
+		if t.id == vmid {
+			row := map[string]any{"upid": upid, "node": t.node, "type": t.typ, "id": t.id, "user": "root@pam", "starttime": t.start.Unix()}
+			if time.Since(t.start) >= t.dur {
+				row["endtime"], row["status"] = t.start.Add(t.dur).Unix(), t.exit
+			}
+			out = append(out, row)
+		}
+	}
+	s.mu.Unlock()
+	reply(w, out)
 }

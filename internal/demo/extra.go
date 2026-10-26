@@ -99,12 +99,19 @@ func (s *Server) conf(g *guest) map[string]string {
 	}
 	st := diskStore(g.node)
 	c := map[string]string{"cores": strconv.Itoa(g.cores), "memory": strconv.FormatInt(g.mem>>20, 10)}
+	if g.tags != "" {
+		c["tags"] = g.tags
+	}
 	gb := g.disk >> 30
 	if g.kind == "lxc" {
 		c["hostname"] = g.name
 		c["swap"] = "512"
 		c["rootfs"] = fmt.Sprintf("%s:subvol-%d-disk-0,size=%dG", st, g.vmid, gb)
-		c["net0"] = "name=eth0,bridge=vmbr0,ip=dhcp,type=veth"
+		c["net0"] = fmt.Sprintf("name=eth0,bridge=vmbr0,hwaddr=BC:24:11:00:%02X:%02X,ip=dhcp,type=veth", g.vmid/256, g.vmid%256)
+		c["onboot"] = "1"
+		c["features"] = "nesting=1"
+		c["unprivileged"] = "1"
+		c["ostype"] = "debian"
 		if g.vmid == 101 {
 			c["mp0"] = fmt.Sprintf("%s:subvol-101-disk-1,mp=/media,size=500G,backup=0", st)
 		}
@@ -113,6 +120,14 @@ func (s *Server) conf(g *guest) map[string]string {
 		c["sockets"] = "1"
 		c["scsi0"] = fmt.Sprintf("%s:vm-%d-disk-0,iothread=1,size=%dG,ssd=1", st, g.vmid, gb)
 		c["ide2"] = "local:iso/debian-13.1.0-amd64-netinst.iso,media=cdrom"
+		c["net0"] = fmt.Sprintf("virtio=BC:24:11:AA:%02X:%02X,bridge=vmbr0,firewall=1", g.vmid/256, g.vmid%256)
+		c["ostype"], c["cpu"], c["boot"], c["scsihw"] = "l26", "host", "order=scsi0;ide2;net0", "virtio-scsi-single"
+		if g.vmid == 102 || g.vmid == 107 {
+			c["agent"] = "1"
+		}
+		if g.vmid == 107 {
+			c["usb0"] = "host=1a86:55d4"
+		}
 	}
 	s.confs[g.vmid] = c
 	return c
@@ -183,6 +198,9 @@ func (s *Server) guestConfigPut(w http.ResponseWriter, r *http.Request) {
 			c[k] = v
 			mb, _ := strconv.Atoi(v)
 			g.mem = int64(mb) << 20
+		case (strings.HasPrefix(k, "mp") || strings.HasPrefix(k, "scsi") || strings.HasPrefix(k, "sata")) &&
+			(strings.Contains(v, "-disk-") || strings.HasPrefix(v, "/")):
+			c[k] = v // disco existente com opções novas (ou bind mount)
 		case strings.HasPrefix(k, "mp") || strings.HasPrefix(k, "scsi"):
 			m := newDiskRe.FindStringSubmatch(v)
 			if m == nil {

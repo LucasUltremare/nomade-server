@@ -50,6 +50,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request, a pve.Au
 		"tailscale": map[string]any{
 			"configured": key != "",
 			"hint":       keyHint(key),
+			"tailnet":    s.state.tailnet(),
 		},
 	})
 }
@@ -59,25 +60,42 @@ func (s *Server) handleTailscaleKey(w http.ResponseWriter, r *http.Request, a pv
 		return
 	}
 	var body struct {
-		AuthKey string `json:"authKey"`
+		AuthKey *string `json:"authKey"`
+		Tailnet *string `json:"tailnet"`
 	}
 	if err := readJSON(r, &body); err != nil {
 		writeErr(w, http.StatusBadRequest, "json inválido")
 		return
 	}
-	body.AuthKey = strings.TrimSpace(body.AuthKey)
-	if body.AuthKey != "" && !tsKeyRe.MatchString(body.AuthKey) {
-		writeErr(w, http.StatusBadRequest, "isso não parece uma auth key do Tailscale (tskey-auth-…)")
-		return
+	if body.AuthKey != nil {
+		k := strings.TrimSpace(*body.AuthKey)
+		if k != "" && !tsKeyRe.MatchString(k) {
+			writeErr(w, http.StatusBadRequest, "isso não parece uma auth key do Tailscale (tskey-auth-…)")
+			return
+		}
+		if err := s.state.setTailscaleKey(k); err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 	}
-	if err := s.state.setTailscaleKey(body.AuthKey); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
+	if body.Tailnet != nil {
+		t := strings.Trim(strings.TrimSpace(strings.ToLower(*body.Tailnet)), ".")
+		if t != "" && !tailnetRe.MatchString(t) {
+			writeErr(w, http.StatusBadRequest, "domínio da tailnet inválido (ex.: tail1a2b3c.ts.net)")
+			return
+		}
+		if err := s.state.setTailnet(t); err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 	}
 	s.handleSettings(w, r, a)
 }
 
-var tsHostRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
+var (
+	tsHostRe  = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
+	tailnetRe = regexp.MustCompile(`^[a-z0-9-]+(\.[a-z0-9-]+)*\.ts\.net$`)
+)
 
 // handleTailscaleCommand monta o script que o front digita no console do nó.
 //
@@ -128,6 +146,11 @@ func (s *Server) handleTailscaleCommand(w http.ResponseWriter, r *http.Request, 
 			return
 		}
 		target := strconv.Itoa(body.VMID)
+		if body.VMID > 0 {
+			s.state.recordExposure(target, body.Hostname)
+		} else {
+			s.state.recordExposure("name:"+strings.ToLower(body.ByName), body.Hostname)
+		}
 		if body.VMID == 0 {
 			if !tsHostRe.MatchString(strings.ToLower(body.ByName)) {
 				writeErr(w, http.StatusBadRequest, "informe o CT")

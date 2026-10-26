@@ -158,7 +158,12 @@ func (s *Server) createGuest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.hasGuest(vmid) {
-		fail(w, 500, fmt.Sprintf("CT %d already exists on node '%s'", vmid, node))
+		if f.Get("force") != "1" {
+			fail(w, 500, fmt.Sprintf("CT %d already exists on node '%s'", vmid, node))
+			return
+		}
+		lines := []string{"restore over existing guest " + strconv.Itoa(vmid), "extracting archive '" + f.Get("ostemplate") + f.Get("archive") + "'", "restore finished"}
+		reply(w, s.newTask(node, "vzrestore", strconv.Itoa(vmid), 3*time.Second, lines, nil))
 		return
 	}
 	g := &guest{vmid: vmid, kind: kind, node: node, cores: 1, mem: gib, disk: 8 * gib, memUse: 0.3, profile: idle(0.04), status: "stopped", tags: f.Get("tags")}
@@ -314,12 +319,13 @@ func (s *Server) addVolume(node, storage string, v volume) {
 
 func (s *Server) content(w http.ResponseWriter, r *http.Request) {
 	want := r.URL.Query().Get("content")
+	wantID, _ := strconv.Atoi(r.URL.Query().Get("vmid"))
 	s.mu.Lock()
 	list := slices.Clone(s.vols[volKey(r.PathValue("node"), r.PathValue("storage"))])
 	s.mu.Unlock()
 	out := []map[string]any{}
 	for _, v := range list {
-		if want != "" && v.content != want {
+		if (want != "" && v.content != want) || (wantID > 0 && v.vmid != wantID) {
 			continue
 		}
 		row := map[string]any{"volid": v.volid, "content": v.content, "format": v.format, "size": v.size, "ctime": v.ctime}
@@ -582,9 +588,18 @@ func (s *Server) termproxy(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, fmt.Sprintf("Configuration file 'nodes/%s/lxc/%d.conf' does not exist", r.PathValue("node"), vmid))
 		return
 	}
+	ticket := "PVEVNC:" + token()
+	if cmd := r.FormValue("cmd"); cmd != "" {
+		s.mu.Lock()
+		if s.termCmd == nil {
+			s.termCmd = map[string]string{}
+		}
+		s.termCmd[ticket] = cmd
+		s.mu.Unlock()
+	}
 	reply(w, map[string]any{
 		"port":   5900 + time.Now().Nanosecond()%100,
-		"ticket": "PVEVNC:" + token(),
+		"ticket": ticket,
 		"user":   "root@pam",
 		"upid":   s.newTask(r.PathValue("node"), "vncshell", "", time.Hour, nil, nil),
 	})
@@ -619,6 +634,14 @@ func (s *Server) vncwebsocket(w http.ResponseWriter, r *http.Request) {
 	}
 	sh := &shell{s: s, c: c, ctx: ctx, node: r.PathValue("node"), host: host, ct: vmid > 0}
 	sh.write("OK")
+	s.mu.Lock()
+	cmd := s.termCmd[r.URL.Query().Get("vncticket")]
+	s.mu.Unlock()
+	if cmd == "upgrade" {
+		sh.upgrade()
+		c.Close(websocket.StatusNormalClosure, "done")
+		return
+	}
 	sh.banner()
 	for {
 		_, msg, err := c.Read(ctx)
@@ -884,4 +907,19 @@ func (sh *shell) runHeredoc(header string, body []string) {
 func writeJSONRaw(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(v)
+}
+
+// upgrade imita o "Upgrade" do painel do PVE (pveupgrade num terminal).
+func (sh *shell) upgrade() {
+	sh.out("Starting system upgrade: apt-get dist-upgrade", "Reading package lists... Done", "Building dependency tree... Done",
+		"Calculating upgrade... Done", "The following packages will be upgraded:", "  libpve-common-perl proxmox-kernel-6.14 pve-manager",
+		"3 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.", "Need to get 112 MB of archives.")
+	sh.sleep(600 * time.Millisecond)
+	for _, p := range []string{"pve-manager", "proxmox-kernel-6.14", "libpve-common-perl"} {
+		sh.out("Get: http://download.proxmox.com/debian/pve trixie/pve-no-subscription amd64 " + p)
+		sh.sleep(300 * time.Millisecond)
+	}
+	sh.out("Setting up pve-manager (9.0.10) ...", "Processing triggers for pve-ha-manager ...", "",
+		"Your System is up-to-date", "", "Seems you installed a kernel update - Please consider rebooting", "this node to activate the new kernel.", "")
+	sh.sleep(500 * time.Millisecond)
 }

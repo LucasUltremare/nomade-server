@@ -20,12 +20,15 @@ type RFBCtor = new (el: HTMLElement, url: string, opts: { credentials: { passwor
  * Console gráfico da VM: o PVE abre um vncproxy e o noVNC conversa com ele
  * pelo mesmo proxy de websocket do terminal; a senha VNC é o ticket.
  */
-export function VncConsole({ target }: { target: ConsoleTarget }) {
+export function VncConsole({ target, onStatus }: { target: ConsoleTarget; onStatus?: (s: Status) => void }) {
   const box = useRef<HTMLDivElement>(null);
   const rfb = useRef<RFBInstance | null>(null);
   const [status, setStatus] = useState<Status>("connecting");
   const [msg, setMsg] = useState("");
   const [attempt, setAttempt] = useState(0);
+  const statusRef = useRef(onStatus);
+  statusRef.current = onStatus;
+  useEffect(() => statusRef.current?.(status), [status]);
 
   useEffect(() => {
     const el = box.current;

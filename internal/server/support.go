@@ -61,8 +61,11 @@ type state struct {
 	mu   sync.Mutex
 	path string
 	data struct {
-		Favorites    map[string][]string `json:"favorites"`
-		TailscaleKey string              `json:"tailscaleKey,omitempty"`
+		Favorites    map[string][]string    `json:"favorites"`
+		TailscaleKey string                 `json:"tailscaleKey,omitempty"`
+		Tailnet      string                 `json:"tailnet,omitempty"` // ex.: tail1a2b3c.ts.net
+		Exposed      map[string]string      `json:"exposed,omitempty"` // vmid ou "name:x" -> nome na tailnet
+		Apps         map[string]appOverride `json:"apps,omitempty"`    // vmid -> ajustes do Meus apps
 	}
 }
 
@@ -98,6 +101,60 @@ func (s *state) setFavorites(user string, ids []string) error {
 	}
 	s.data.Favorites[user] = slices.Compact(ids)
 	return s.save()
+}
+
+func (s *state) appOverrides() map[string]appOverride {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := map[string]appOverride{}
+	for k, v := range s.data.Apps {
+		out[k] = v
+	}
+	return out
+}
+
+func (s *state) setAppOverride(vmid string, ov appOverride) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.data.Apps == nil {
+		s.data.Apps = map[string]appOverride{}
+	}
+	s.data.Apps[vmid] = ov
+	return s.save()
+}
+
+// exposures devolve onde cada app foi publicado no Tailscale e o domínio da tailnet.
+func (s *state) exposures() (map[string]string, string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := map[string]string{}
+	for k, v := range s.data.Exposed {
+		out[k] = v
+	}
+	return out, s.data.Tailnet
+}
+
+func (s *state) recordExposure(key, host string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.data.Exposed == nil {
+		s.data.Exposed = map[string]string{}
+	}
+	s.data.Exposed[key] = host
+	s.save()
+}
+
+func (s *state) setTailnet(t string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.data.Tailnet = t
+	return s.save()
+}
+
+func (s *state) tailnet() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.data.Tailnet
 }
 
 func (s *state) tailscaleKey() string {

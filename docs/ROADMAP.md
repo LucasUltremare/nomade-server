@@ -46,15 +46,15 @@ Goal: everything the Proxmox VE web UI does, plus Mia-only extras on top.
 | Certificates | 🟡 | Expiry shown in Health; no upload or ACME order |
 | DNS, hosts, time zone | ⬜ | |
 | Syslog | ⬜ | |
-| Updates | 🟡 | List + run in console; no refresh-and-upgrade UI |
-| Repositories (enterprise / no-subscription / test) | ⬜ | |
+| Updates | ✅ | Refresh, pending list, upgrade in the PVE upgrade terminal |
+| Repositories (enterprise / no-subscription / test) | ✅ | Switches + one-click move to no-subscription |
 | Firewall | ✅ | |
 | Disks: list, SMART | 🟡 | Health status and wearout; no full SMART attributes |
 | Disks: wipe, initialize GPT, create LVM / LVM-thin / directory / ZFS | ⬜ | |
 | Ceph | ⬜ | |
 | Replication | ⬜ | |
-| Task history | ✅ | Via cluster tasks |
-| Bulk start / stop / migrate | 🟡 | Bulk migrate only |
+| Task history | ✅ | Cluster-wide and per guest |
+| Bulk start / stop / migrate | ✅ | |
 | Wake-on-LAN | ⬜ | |
 
 ### VM
@@ -65,14 +65,14 @@ Goal: everything the Proxmox VE web UI does, plus Mia-only extras on top.
 | Summary, charts | ✅ | |
 | Console (noVNC) | ✅ | |
 | Start, shutdown, reboot, stop | ✅ | |
-| Suspend, hibernate, reset, resume | 🟡 | Resume only |
+| Suspend, hibernate, reset, resume | ✅ | |
 | Hardware: CPU count, memory, disks, CD | ✅ | Grow, add, move, detach, delete |
-| Hardware: CPU type, balloon, BIOS, machine, display, NICs, USB, PCI, serial, EFI/TPM | ⬜ | |
-| Disk options (cache, discard, IO thread, backup flag) | ⬜ | |
+| Hardware: CPU type, balloon, BIOS, machine, display, NICs, USB, PCI, serial | ✅ | Adding EFI/TPM to an existing VM still missing |
+| Disk options (cache, discard, IO thread, SSD, backup flag) | ✅ | |
 | Cloud-Init | ⬜ | |
-| Options (name, start at boot, boot order, OS type, agent, protection, hotplug, startup order) | ⬜ | |
+| Options (name, start at boot, boot order, OS type, agent, protection, startup order, notes) | ✅ | |
 | Snapshots | ✅ | Incl. RAM |
-| Backup now / backups of this guest / restore over | 🟡 | Restore to a new guest via Storage |
+| Backup now / backups of this guest / restore over | ✅ | |
 | Replication | ⬜ | |
 | Firewall | ✅ | |
 | Permissions | ⬜ | |
@@ -86,12 +86,12 @@ Goal: everything the Proxmox VE web UI does, plus Mia-only extras on top.
 | Create | ✅ | Template download on the fly |
 | Summary, charts, console | ✅ | |
 | Resources: cores, memory, swap, disks, mount points | ✅ | |
-| CPU limit / units | ⬜ | |
-| Network (add/edit NICs, IP, VLAN, firewall flag) | ⬜ | |
-| DNS | ⬜ | |
-| Options (start at boot, startup order, features: nesting/keyctl/fuse/NFS/CIFS, protection, console mode) | ⬜ | |
+| CPU limit / units | ✅ | |
+| Network (add/edit NICs, IP, VLAN, firewall flag, rate, MTU) | ✅ | |
+| DNS | ✅ | |
+| Options (start at boot, startup order, features: nesting/keyctl/fuse/NFS/CIFS, protection, notes) | ✅ | |
 | Snapshots, firewall, migrate, clone, template, delete | ✅ | |
-| Backup now / backups of this guest | 🟡 | |
+| Backup now / backups of this guest, task history, device passthrough | ✅ | |
 | Replication, permissions | ⬜ | |
 
 ### Storage
@@ -112,11 +112,11 @@ Goal: everything the Proxmox VE web UI does, plus Mia-only extras on top.
 | Health checks + notifications bell | ✅ |
 | Firewall lockout guard | ✅ |
 | One-click self-update | ✅ |
-| "My apps" homepage (icons, status, local + Tailscale links) | ⬜ |
+| "My apps" homepage (icons, status, local + Tailscale links) | ✅ |
 | Shared folders between LXCs (bind mounts with unprivileged ID mapping) | ⬜ |
 | Easy GPU / USB passthrough (iGPU to Jellyfin, Zigbee to Home Assistant) | ⬜ |
 | Nomade stacks (e.g. media kit in one click) | ⬜ |
-| Update all LXCs / community-scripts apps | ⬜ |
+| Update all LXCs / community-scripts apps | ✅ |
 | Scheduled actions (power on/off) | ⬜ |
 | Automatic snapshots with retention | ⬜ |
 | Automatic restore test of backups | ⬜ |

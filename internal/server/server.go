@@ -44,6 +44,7 @@ type Server struct {
 	ts       *tailscale
 	apps     *appStore
 	updater  *updater
+	prober   *prober
 }
 
 func New(cfg Config) (*Server, error) {
@@ -65,6 +66,7 @@ func New(cfg Config) (*Server, error) {
 		ts:       &tailscale{demo: cfg.Demo},
 		apps:     newAppStore(cfg.AppsURL, cfg.DataDir),
 		updater:  newUpdater(cfg.Version, cfg.DataDir),
+		prober:   newProber(),
 	}, nil
 }
 
@@ -136,6 +138,22 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/guests/{kind}/{vmid}/template", s.authed(s.handleTemplate))
 	mux.HandleFunc("PUT /api/guests/{kind}/{vmid}/cdrom", s.authed(s.handleCDROM))
 	mux.HandleFunc("DELETE /api/guests/{kind}/{vmid}", s.authed(s.handleDestroy))
+	mux.HandleFunc("PUT /api/guests/{kind}/{vmid}/options", s.authed(s.handleGuestOptions))
+	mux.HandleFunc("PUT /api/guests/{kind}/{vmid}/net/{net}", s.authed(s.handleGuestNet))
+	mux.HandleFunc("POST /api/guests/{kind}/{vmid}/devices", s.authed(s.handleGuestDevice))
+	mux.HandleFunc("DELETE /api/guests/{kind}/{vmid}/config/{key}", s.authed(s.handleConfigKeyDelete))
+	mux.HandleFunc("PUT /api/guests/{kind}/{vmid}/disks/{disk}/options", s.authed(s.handleDiskOptions))
+	mux.HandleFunc("POST /api/guests/{kind}/{vmid}/power/{power}", s.authed(s.handleGuestPower))
+	mux.HandleFunc("GET /api/guests/{kind}/{vmid}/tasks", s.authed(s.handleGuestTasks))
+	mux.HandleFunc("GET /api/guests/{kind}/{vmid}/backups", s.authed(s.handleGuestBackups))
+	mux.HandleFunc("POST /api/guests/{kind}/{vmid}/backup", s.authed(s.handleGuestBackupNow))
+	mux.HandleFunc("POST /api/guests/{kind}/{vmid}/restore", s.authed(s.handleGuestRestoreOver))
+	mux.HandleFunc("GET /api/nodes/{node}/hardware", s.authed(s.handleHardware))
+	mux.HandleFunc("POST /api/nodes/{node}/bulk/{op}", s.authed(s.handleNodeBulk))
+	mux.HandleFunc("GET /api/nodes/{node}/repos", s.authed(s.handleRepos))
+	mux.HandleFunc("POST /api/nodes/{node}/repos", s.authed(s.handleRepoChange))
+	mux.HandleFunc("GET /api/myapps", s.authed(s.handleMyApps))
+	mux.HandleFunc("PUT /api/myapps/{vmid}", s.authed(s.handleMyAppSave))
 	mux.HandleFunc("GET /api/nodes/{node}/vm-options", s.authed(s.handleVMOptions))
 	mux.HandleFunc("POST /api/nodes/{node}/qemu", s.authed(s.handleVMCreate))
 

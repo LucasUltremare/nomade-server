@@ -224,7 +224,64 @@ export interface Volume {
 
 export interface Settings {
   root: boolean;
-  tailscale: { configured: boolean; hint: string };
+  tailscale: { configured: boolean; hint: string; tailnet: string };
+}
+
+export interface NetCard {
+  key: string;
+  model?: string;
+  name?: string;
+  mac: string;
+  bridge: string;
+  ip?: string;
+  gw?: string;
+  ip6?: string;
+  gw6?: string;
+  tag: number;
+  firewall: boolean;
+  rate?: string;
+  mtu?: string;
+  linkDown: boolean;
+}
+
+export interface Device {
+  key: string;
+  kind: "usb" | "pci" | "serial" | "dev";
+  value: string;
+}
+
+export interface HostHardware {
+  usb: { usbpath?: string; vendid: string; prodid: string; manufacturer?: string; product?: string; busnum?: number; port?: number }[];
+  pci: { id: string; class: string; vendor_name?: string; device_name?: string; iommugroup?: number; mdev?: number }[];
+}
+
+export interface MyApp {
+  id: string;
+  vmid: number;
+  type: GuestType;
+  node: string;
+  name: string;
+  title: string;
+  logo: string;
+  slug: string;
+  status: string;
+  ip: string;
+  tsIp?: string;
+  port: number;
+  url: string;
+  tsUrl?: string;
+  up: boolean | null;
+  latency?: number;
+  hidden: boolean;
+  scheme: string;
+  path: string;
+}
+
+export interface Repos {
+  files: { path: string; "file-type": string; repositories: { Types: string[]; URIs: string[]; Suites: string[]; Components?: string[]; Enabled: number; Comment?: string }[] }[];
+  "standard-repos": { handle: string; name: string; status?: number }[];
+  infos?: { kind: string; message: string; path?: string; index?: string }[];
+  digest: string;
 }
 
 export interface Disk {
@@ -236,6 +293,7 @@ export interface Disk {
   backup: boolean;
   bind: boolean;
   unused: boolean;
+  opts: Record<string, string>;
 }
 
 export interface GuestConfig {
@@ -251,6 +309,9 @@ export interface GuestConfig {
   pending: string[];
   hasCd: boolean;
   cdrom: string;
+  nets: NetCard[];
+  devices: Device[];
+  options: Record<string, string>;
 }
 
 export interface HealthCheck {
@@ -443,8 +504,8 @@ export const api = {
     request<{ tasks: { node: string; upid?: string; error?: string }[] }>("POST", "/api/backup", { storage, mode }),
 
   task: (upid: string, start: number) => request<TaskState>("GET", `/api/tasks/${encodeURIComponent(upid)}?start=${start}`),
-  console: (node: string, kind: "node" | "lxc" | "qemu", vmid = 0) =>
-    request<ConsoleTicket>("POST", "/api/console", { node, kind, vmid }),
+  console: (node: string, kind: "node" | "lxc" | "qemu", vmid = 0, cmd?: string) =>
+    request<ConsoleTicket>("POST", "/api/console", { node, kind, vmid, cmd }),
   apps: (refresh = false) => request<AppCatalog>("GET", `/api/apps${refresh ? "?refresh=1" : ""}`),
 
   lxcOptions: (node: string) => request<LxcOptions>("GET", `/api/nodes/${enc(node)}/lxc-options`),
@@ -504,6 +565,34 @@ export const api = {
   makeTemplate: (g: Pick<Guest, "type" | "vmid">) => request<{ upid: string }>("POST", `/api/guests/${g.type}/${g.vmid}/template`),
   destroy: (g: Pick<Guest, "type" | "vmid">, confirm: string) =>
     request<{ upid: string }>("DELETE", `/api/guests/${g.type}/${g.vmid}`, { confirm }),
+
+  guestOptions: (g: Pick<Guest, "type" | "vmid">, opts: Record<string, string>) =>
+    request<{ upid: string }>("PUT", `/api/guests/${g.type}/${g.vmid}/options`, opts),
+  guestNet: (g: Pick<Guest, "type" | "vmid">, key: string, n: Partial<NetCard>) =>
+    request<{ upid: string; key: string }>("PUT", `/api/guests/${g.type}/${g.vmid}/net/${key}`, n),
+  guestDevice: (g: Pick<Guest, "type" | "vmid">, body: Record<string, unknown>) =>
+    request<{ upid: string; key: string }>("POST", `/api/guests/${g.type}/${g.vmid}/devices`, body),
+  configDelete: (g: Pick<Guest, "type" | "vmid">, key: string) =>
+    request<{ upid: string }>("DELETE", `/api/guests/${g.type}/${g.vmid}/config/${key}`),
+  diskOptions: (g: Pick<Guest, "type" | "vmid">, disk: string, opts: Record<string, string>) =>
+    request<{ upid: string }>("PUT", `/api/guests/${g.type}/${g.vmid}/disks/${disk}/options`, opts),
+  guestPower: (g: Pick<Guest, "type" | "vmid">, action: "hibernate" | "reset") =>
+    request<{ upid: string }>("POST", `/api/guests/${g.type}/${g.vmid}/power/${action}`),
+  guestTasks: (g: Pick<Guest, "type" | "vmid">) => request<TaskRow[]>("GET", `/api/guests/${g.type}/${g.vmid}/tasks`),
+  guestBackups: (g: Pick<Guest, "type" | "vmid">) =>
+    request<{ volid: string; storage: string; node: string; size: number; ctime: number; notes: string }[]>("GET", `/api/guests/${g.type}/${g.vmid}/backups`),
+  guestBackupNow: (g: Pick<Guest, "type" | "vmid">, body: { storage: string; mode: string; notes: string }) =>
+    request<{ upid: string }>("POST", `/api/guests/${g.type}/${g.vmid}/backup`, body),
+  guestRestoreOver: (g: Pick<Guest, "type" | "vmid">, volid: string, confirm: string) =>
+    request<{ upid: string }>("POST", `/api/guests/${g.type}/${g.vmid}/restore`, { volid, confirm }),
+  hardware: (node: string) => request<HostHardware>("GET", `/api/nodes/${enc(node)}/hardware`),
+  nodeBulk: (node: string, op: "startall" | "stopall") => request<{ upid: string }>("POST", `/api/nodes/${enc(node)}/bulk/${op}`),
+  repos: (node: string) => request<Repos>("GET", `/api/nodes/${enc(node)}/repos`),
+  repoChange: (node: string, body: Record<string, unknown>) => request<{ ok: boolean }>("POST", `/api/nodes/${enc(node)}/repos`, body),
+  myApps: (all = false) => request<MyApp[]>("GET", `/api/myapps${all ? "?all=1" : ""}`),
+  saveMyApp: (vmid: number, ov: { title?: string; port?: number; scheme?: string; path?: string; hidden?: boolean }) =>
+    request<{ ok: boolean }>("PUT", `/api/myapps/${vmid}`, ov),
+  setTailnet: (tailnet: string) => request<Settings>("PUT", "/api/settings/tailscale", { tailnet }),
 
   health: () => request<HealthReport>("GET", "/api/health"),
   aptRefresh: (node: string) => request<{ upid: string }>("POST", `/api/nodes/${enc(node)}/apt/refresh`),

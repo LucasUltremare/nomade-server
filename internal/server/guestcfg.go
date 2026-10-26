@@ -17,29 +17,33 @@ import (
 // montagem no LXC; scsi/virtio/sata/ide nas VMs) e migração entre nós.
 
 type diskView struct {
-	Key        string `json:"key"`    // rootfs, mp0, scsi0, unused0...
-	Volume     string `json:"volume"` // tank:subvol-101-disk-0 ou /caminho (bind)
-	Storage    string `json:"storage"`
-	Size       int64  `json:"size"`
-	Mountpoint string `json:"mountpoint,omitempty"`
-	Backup     bool   `json:"backup"`
-	Bind       bool   `json:"bind"`
-	Unused     bool   `json:"unused"`
+	Key        string            `json:"key"`    // rootfs, mp0, scsi0, unused0...
+	Volume     string            `json:"volume"` // tank:subvol-101-disk-0 ou /caminho (bind)
+	Storage    string            `json:"storage"`
+	Size       int64             `json:"size"`
+	Mountpoint string            `json:"mountpoint,omitempty"`
+	Backup     bool              `json:"backup"`
+	Bind       bool              `json:"bind"`
+	Unused     bool              `json:"unused"`
+	Opts       map[string]string `json:"opts"`
 }
 
 type guestConfig struct {
-	Node     string       `json:"node"`
-	Kind     string       `json:"kind"`
-	VMID     int          `json:"vmid"`
-	Status   string       `json:"status"`
-	Cores    int          `json:"cores"`
-	Memory   int          `json:"memory"` // MB
-	Swap     int          `json:"swap"`   // MB (só LXC)
-	Disks    []diskView   `json:"disks"`
-	Storages []storageOpt `json:"storages"` // onde dá pra criar/mover discos
-	Pending  []string     `json:"pending"`  // chaves que só valem depois de reiniciar
-	HasCD    bool         `json:"hasCd"`    // VM com drive de CD (ide2)
-	CDROM    string       `json:"cdrom"`    // ISO no CD ("" = vazio)
+	Node     string            `json:"node"`
+	Kind     string            `json:"kind"`
+	VMID     int               `json:"vmid"`
+	Status   string            `json:"status"`
+	Cores    int               `json:"cores"`
+	Memory   int               `json:"memory"` // MB
+	Swap     int               `json:"swap"`   // MB (só LXC)
+	Disks    []diskView        `json:"disks"`
+	Storages []storageOpt      `json:"storages"` // onde dá pra criar/mover discos
+	Pending  []string          `json:"pending"`  // chaves que só valem depois de reiniciar
+	HasCD    bool              `json:"hasCd"`    // VM com drive de CD (ide2)
+	CDROM    string            `json:"cdrom"`    // ISO no CD ("" = vazio)
+	Nets     []netView         `json:"nets"`
+	Devices  []deviceView      `json:"devices"`
+	Options  map[string]string `json:"options"`
 }
 
 var (
@@ -204,6 +208,7 @@ func (s *Server) handleGuestConfig(w http.ResponseWriter, r *http.Request, a pve
 		}
 	}
 
+	enrichConfig(&cfg, g.Type, raw)
 	if stores, err := s.pve.NodeStorage(r.Context(), &a, g.Node, ""); err == nil {
 		for _, st := range stores {
 			if bool(st.Active) && bool(st.Enabled) && hasContent(st.Content, content) {

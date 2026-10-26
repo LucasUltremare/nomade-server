@@ -2,7 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { api } from "./api";
 import { health, kindLabel } from "./format";
 import {
-  IconApps, IconDownload, IconHome, IconLXC, IconLogout, IconNetwork, IconNodes, IconSearch, IconShield, IconSidebar,
+  IconApps, IconDownload, IconGrid, IconHome, IconLXC, IconLogout, IconNetwork, IconNodes, IconSearch, IconShield, IconSidebar,
   IconStorage, IconTerminal, IconVM,
 } from "./icons";
 import { MiaMark } from "./Logo";
@@ -12,6 +12,7 @@ import { UpdateNotice } from "./Update";
 
 export const NAV = [
   { path: "/", label: "Visão geral", icon: IconHome },
+  { path: "/meus-apps", label: "Meus apps", icon: IconGrid },
   { path: "/nos", label: "Nós", icon: IconNodes },
   { path: "/vms", label: "Máquinas virtuais", icon: IconVM },
   { path: "/lxc", label: "Contêineres LXC", icon: IconLXC },

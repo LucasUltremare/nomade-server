@@ -32,6 +32,7 @@ func (s *Server) handleConsoleOpen(w http.ResponseWriter, r *http.Request, a pve
 		Node string `json:"node"`
 		Kind string `json:"kind"`
 		VMID int    `json:"vmid"`
+		Cmd  string `json:"cmd"`
 	}
 	if err := readJSON(r, &body); err != nil {
 		writeErr(w, http.StatusBadRequest, "json inválido")
@@ -52,7 +53,11 @@ func (s *Server) handleConsoleOpen(w http.ResponseWriter, r *http.Request, a pve
 		writeJSON(w, map[string]any{"node": body.Node, "kind": "qemu", "vmid": body.VMID, "port": int(t.Port), "ticket": t.Ticket, "user": a.User})
 		return
 	}
-	t, err := s.pve.Termproxy(r.Context(), &a, body.Node, body.Kind, body.VMID)
+	if body.Cmd != "" && body.Cmd != "upgrade" {
+		writeErr(w, http.StatusBadRequest, "comando inválido")
+		return
+	}
+	t, err := s.pve.Termproxy(r.Context(), &a, body.Node, body.Kind, body.VMID, body.Cmd)
 	if err != nil {
 		writePVEErr(w, err)
 		return

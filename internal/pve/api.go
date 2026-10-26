@@ -272,10 +272,15 @@ func GuestPath(node, kind string, vmid int) string {
 	return p
 }
 
-// Termproxy abre um terminal no nó (kind "node") ou num LXC.
-func (c *Client) Termproxy(ctx context.Context, a *Auth, node, kind string, vmid int) (Term, error) {
+// Termproxy abre um terminal no nó (kind "node") ou num LXC. cmd (só no nó)
+// pode ser "upgrade" pra abrir já rodando a atualização do PVE.
+func (c *Client) Termproxy(ctx context.Context, a *Auth, node, kind string, vmid int, cmd string) (Term, error) {
 	var t Term
-	return t, c.Post(ctx, a, GuestPath(node, kind, vmid)+"/termproxy", nil, &t)
+	f := url.Values{}
+	if cmd != "" && kind == "node" {
+		f.Set("cmd", cmd)
+	}
+	return t, c.Post(ctx, a, GuestPath(node, kind, vmid)+"/termproxy", f, &t)
 }
 
 func (c *Client) NextID(ctx context.Context, a *Auth) (int, error) {

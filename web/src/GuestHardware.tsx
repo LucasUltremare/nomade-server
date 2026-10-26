@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, type Disk, type Guest } from "./api";
+import { api, type Device, type Disk, type Guest } from "./api";
 import { bytes } from "./format";
 import { TaskLog } from "./Tasks";
 
@@ -30,6 +30,8 @@ export function GuestHardware({ g }: { g: Guest }) {
   return (
     <div className="hw">
       <Resources g={g} cores={cfg.cores} memory={cfg.memory} swap={cfg.swap} onDone={after} onError={fail} />
+      {g.type === "qemu" && <VmSettings g={g} opts={cfg.options} onDone={after} onError={fail} />}
+      {g.type === "lxc" && <CpuLimits g={g} opts={cfg.options} onDone={after} onError={fail} />}
       {cfg.pending.length > 0 && (
         <div className="warn">Mudanças esperando reiniciar: {cfg.pending.join(", ")}</div>
       )}
@@ -43,6 +45,7 @@ export function GuestHardware({ g }: { g: Guest }) {
       </div>
       <AddDisk g={g} storages={cfg.storages} onDone={after} onError={fail} />
       {cfg.hasCd && <CdRom g={g} current={cfg.cdrom} onDone={after} onError={fail} />}
+      <Devices g={g} devices={cfg.devices} onDone={after} onError={fail} />
 
       {err && <div className="err">{err}</div>}
       {upid && <TaskLog key={upid} upid={upid} onDone={refresh} />}
@@ -75,7 +78,7 @@ function Resources({ g, cores, memory, swap, onDone, onError }: {
 function DiskRow({ g, d, storages, running, onDone, onError }: {
   g: Guest; d: Disk; storages: string[]; running: boolean; onDone: Done; onError: Fail;
 }) {
-  const [mode, setMode] = useState<"" | "resize" | "move" | "remove">("");
+  const [mode, setMode] = useState<"" | "resize" | "move" | "remove" | "opts">("");
   const [add, setAdd] = useState(4);
   const [target, setTarget] = useState(storages.find((s) => s !== d.storage) ?? "");
   const resize = useMutation({ mutationFn: () => api.diskResize(g, d.key, add), onSuccess: (r) => { setMode(""); onDone(r); }, onError });
@@ -96,6 +99,7 @@ function DiskRow({ g, d, storages, running, onDone, onError }: {
       <div className="disk-actions">
         {!d.unused && !d.bind && <button className="btn small" onClick={() => setMode(mode === "resize" ? "" : "resize")}>Aumentar</button>}
         {!d.bind && storages.length > 1 && <button className="btn small" onClick={() => setMode(mode === "move" ? "" : "move")}>Mover</button>}
+        {!d.unused && <button className="btn small" onClick={() => setMode(mode === "opts" ? "" : "opts")}>Opções</button>}
         {d.key !== "rootfs" && <button className="btn small danger" onClick={() => setMode(mode === "remove" ? "" : "remove")}>{d.unused ? "Apagar" : "Desanexar"}</button>}
       </div>
 
@@ -118,6 +122,7 @@ function DiskRow({ g, d, storages, running, onDone, onError }: {
           {g.type === "lxc" && running && <small className="muted">Contêiner precisa estar desligado.</small>}
         </form>
       )}
+      {mode === "opts" && <DiskOpts g={g} d={d} onDone={(r) => { setMode(""); onDone(r); }} onError={onError} />}
       {mode === "remove" && (
         <div className="disk-form">
           <span>{d.unused ? "Apaga o volume do storage de vez." : "Tira o disco do guest; ele fica como “disco solto” e não é apagado."}</span>
@@ -127,6 +132,211 @@ function DiskRow({ g, d, storages, running, onDone, onError }: {
         </div>
       )}
     </div>
+  );
+}
+
+function DiskOpts({ g, d, onDone, onError }: { g: Guest; d: Disk; onDone: Done; onError: Fail }) {
+  const vm = g.type === "qemu";
+  const [o, setO] = useState<Record<string, string>>({
+    cache: d.opts.cache ?? "", discard: d.opts.discard ?? "", iothread: d.opts.iothread ?? "", ssd: d.opts.ssd ?? "",
+    backup: d.opts.backup ?? (d.key === "rootfs" ? "" : "1"), mountoptions: d.opts.mountoptions ?? "",
+  });
+  const save = useMutation({
+    mutationFn: () => {
+      const diff: Record<string, string> = {};
+      for (const [k, v] of Object.entries(o)) if ((d.opts[k] ?? "") !== v && (vm || ["backup", "mountoptions"].includes(k))) diff[k] = v;
+      return api.diskOptions(g, d.key, diff);
+    },
+    onSuccess: onDone, onError,
+  });
+  const flag = (k: string, label: string) => (
+    <label className="check"><input type="checkbox" checked={o[k] === "1" || o[k] === "on"} onChange={(e) => setO((x) => ({ ...x, [k]: e.target.checked ? (k === "discard" ? "on" : "1") : (k === "backup" ? "0" : "") }))} />{label}</label>
+  );
+  return (
+    <form className="disk-form" onSubmit={(e) => { e.preventDefault(); save.mutate(); }}>
+      {vm && (
+        <select value={o.cache} onChange={(e) => setO((x) => ({ ...x, cache: e.target.value }))} aria-label="Cache">
+          <option value="">Cache padrão (nenhum)</option><option value="writeback">Write back</option><option value="writethrough">Write through</option>
+          <option value="directsync">Direct sync</option><option value="unsafe">Unsafe</option>
+        </select>
+      )}
+      {vm && flag("discard", "Discard (TRIM)")}
+      {vm && flag("iothread", "IO thread")}
+      {vm && flag("ssd", "Emular SSD")}
+      {d.key !== "rootfs" && flag("backup", "Incluir no backup")}
+      {!vm && d.key !== "rootfs" && (
+        <input value={o.mountoptions} onChange={(e) => setO((x) => ({ ...x, mountoptions: e.target.value }))} placeholder="noatime;nosuid" aria-label="Opções de montagem" style={{ width: 150 }} />
+      )}
+      <button className="btn small primary" disabled={save.isPending}>Salvar</button>
+      {vm && <small className="muted">Vale no próximo boot da VM.</small>}
+    </form>
+  );
+}
+
+const CPU_TYPES = [["host", "host (máximo desempenho)"], ["x86-64-v2-AES", "x86-64-v2-AES (padrão, migra entre CPUs)"], ["x86-64-v3", "x86-64-v3"], ["x86-64-v4", "x86-64-v4"], ["kvm64", "kvm64 (compatível)"], ["qemu64", "qemu64"]];
+
+function VmSettings({ g, opts, onDone, onError }: { g: Guest; opts: Record<string, string>; onDone: Done; onError: Fail }) {
+  const cur = { cpu: (opts.cpu ?? "x86-64-v2-AES").split(",")[0], balloon: opts.balloon ?? "", bios: opts.bios ?? "seabios", machine: (opts.machine ?? "pc").startsWith("pc-q35") || opts.machine === "q35" ? "q35" : "pc", vga: (opts.vga ?? "std").split(",")[0] };
+  const [v, setV] = useState(cur);
+  const curKey = JSON.stringify(cur);
+  useEffect(() => setV(cur), [curKey]); // volta pro salvo quando o config recarrega
+  const save = useMutation({
+    mutationFn: () => {
+      const diff: Record<string, string> = {};
+      for (const k of Object.keys(cur) as (keyof typeof cur)[]) if (v[k] !== cur[k]) diff[k] = v[k];
+      return api.guestOptions(g, diff);
+    },
+    onSuccess: onDone, onError,
+  });
+  const changed = JSON.stringify(v) !== JSON.stringify(cur);
+  return (
+    <>
+      <div className="hw-title">Sistema</div>
+      <form className="vm-settings" onSubmit={(e) => { e.preventDefault(); save.mutate(); }}>
+        <label className="field">Tipo de CPU
+          <select value={v.cpu} onChange={(e) => setV({ ...v, cpu: e.target.value })}>
+            {CPU_TYPES.map(([a, b]) => <option key={a} value={a}>{b}</option>)}
+            {!CPU_TYPES.some(([a]) => a === v.cpu) && <option value={v.cpu}>{v.cpu}</option>}
+          </select>
+        </label>
+        <label className="field">RAM mínima (balloon, MB)<input type="number" min={0} value={v.balloon} placeholder="igual à RAM" onChange={(e) => setV({ ...v, balloon: e.target.value })} /></label>
+        <label className="field">BIOS
+          <select value={v.bios} onChange={(e) => setV({ ...v, bios: e.target.value })}><option value="seabios">SeaBIOS (legado)</option><option value="ovmf">OVMF (UEFI)</option></select>
+        </label>
+        <label className="field">Máquina
+          <select value={v.machine} onChange={(e) => setV({ ...v, machine: e.target.value })}><option value="pc">i440fx</option><option value="q35">q35 (PCIe)</option></select>
+        </label>
+        <label className="field">Tela
+          <select value={v.vga} onChange={(e) => setV({ ...v, vga: e.target.value })}>
+            {[["std", "Padrão"], ["virtio", "VirtIO-GPU"], ["qxl", "SPICE (qxl)"], ["vmware", "VMware"], ["serial0", "Terminal serial"], ["none", "Nenhuma"]].map(([a, b]) => <option key={a} value={a}>{b}</option>)}
+          </select>
+        </label>
+        <button className="btn small primary" disabled={!changed || save.isPending}>Salvar</button>
+      </form>
+      {v.bios === "ovmf" && !opts.efidisk0 && <div className="warn">UEFI precisa de um disco EFI. Adicione pelo Proxmox ou crie a VM de novo com o preset Windows/UEFI.</div>}
+    </>
+  );
+}
+
+function CpuLimits({ g, opts, onDone, onError }: { g: Guest; opts: Record<string, string>; onDone: Done; onError: Fail }) {
+  const [limit, setLimit] = useState(opts.cpulimit ?? "");
+  const [units, setUnits] = useState(opts.cpuunits ?? "");
+  useEffect(() => { setLimit(opts.cpulimit ?? ""); setUnits(opts.cpuunits ?? ""); }, [opts.cpulimit, opts.cpuunits]);
+  const save = useMutation({ mutationFn: () => api.guestOptions(g, { cpulimit: limit, cpuunits: units }), onSuccess: onDone, onError });
+  return (
+    <form className="hw-res" onSubmit={(e) => { e.preventDefault(); save.mutate(); }}>
+      <label className="field">Limite de CPU<input value={limit} onChange={(e) => setLimit(e.target.value)} placeholder="sem limite (ex.: 1.5)" /></label>
+      <label className="field">Peso de CPU<input value={units} onChange={(e) => setUnits(e.target.value)} placeholder="100" /></label>
+      <button className="btn small primary" disabled={(limit === (opts.cpulimit ?? "") && units === (opts.cpuunits ?? "")) || save.isPending}>Salvar</button>
+    </form>
+  );
+}
+
+function Devices({ g, devices, onDone, onError }: { g: Guest; devices: Device[]; onDone: Done; onError: Fail }) {
+  const vm = g.type === "qemu";
+  const { data: hw } = useQuery({ queryKey: ["hardware", g.node], queryFn: () => api.hardware(g.node), enabled: vm });
+  const [adding, setAdding] = useState<"" | "usb" | "pci" | "serial" | "dev">("");
+  const [pick, setPick] = useState("");
+  const [pcie, setPcie] = useState(true);
+  const [all, setAll] = useState(true);
+  const [path, setPath] = useState("/dev/dri/renderD128");
+  const [gid, setGid] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const add = useMutation({
+    mutationFn: () => api.guestDevice(g, adding === "dev" ? { kind: "dev", path, gid } : { kind: adding, host: pick, pcie, allFunctions: all }),
+    onSuccess: (r) => { setAdding(""); setPick(""); onDone(r); }, onError,
+  });
+  const del = useMutation({ mutationFn: (k: string) => api.configDelete(g, k), onSuccess: (r) => { setConfirm(""); onDone(r); }, onError });
+  const describe = (d: Device) => {
+    if (d.kind === "usb") {
+      const id = d.value.replace("host=", "").split(",")[0];
+      const u = hw?.usb.find((x) => `${x.vendid}:${x.prodid}` === id || x.usbpath === id);
+      return u ? `${u.manufacturer ?? ""} ${u.product ?? id}` : d.value;
+    }
+    if (d.kind === "pci") {
+      const id = d.value.split(",")[0];
+      const p = hw?.pci.find((x) => x.id.startsWith(id.includes(":") && id.split(":").length === 2 ? `0000:${id}` : id));
+      return p ? `${p.device_name ?? id} (${id})` : d.value;
+    }
+    return d.value;
+  };
+  return (
+    <>
+      <div className="hw-title">{vm ? "Dispositivos (USB, PCI, serial)" : "Dispositivos do host"}</div>
+      <div className="disk-list">
+        {devices.map((d) => (
+          <div key={d.key} className="disk">
+            <div className="disk-main"><div><b>{d.key}</b></div><div className="mono muted disk-vol">{describe(d)}</div></div>
+            <div />
+            <div className="disk-actions">
+              {confirm === d.key
+                ? <button className="btn small danger" onClick={() => del.mutate(d.key)}>Confirmar</button>
+                : <button className="btn small danger" onClick={() => setConfirm(d.key)}>Remover</button>}
+            </div>
+          </div>
+        ))}
+      </div>
+      {!adding ? (
+        <div className="ts-row" style={{ marginTop: 10 }}>
+          {vm ? (
+            <>
+              <button className="btn small" onClick={() => setAdding("usb")}>Adicionar USB</button>
+              <button className="btn small" onClick={() => setAdding("pci")}>Adicionar PCI</button>
+              <button className="btn small" onClick={() => setAdding("serial")}>Adicionar porta serial</button>
+            </>
+          ) : (
+            <button className="btn small" onClick={() => setAdding("dev")}>Passar dispositivo pro contêiner</button>
+          )}
+        </div>
+      ) : (
+        <form className="disk-add" onSubmit={(e) => { e.preventDefault(); add.mutate(); }}>
+          {adding === "usb" && (
+            <label className="field span-all">Dispositivo USB
+              <select value={pick} onChange={(e) => setPick(e.target.value)}>
+                <option value="">Escolha…</option>
+                {hw?.usb.filter((u) => !/hub/i.test(u.product ?? "")).map((u) => (
+                  <option key={`${u.vendid}:${u.prodid}:${u.usbpath}`} value={`${u.vendid}:${u.prodid}`}>{u.manufacturer} {u.product} ({u.vendid}:{u.prodid})</option>
+                ))}
+              </select>
+            </label>
+          )}
+          {adding === "pci" && (
+            <>
+              <label className="field span-all">Placa PCI
+                <select value={pick} onChange={(e) => setPick(e.target.value)}>
+                  <option value="">Escolha…</option>
+                  {hw?.pci.filter((p) => !p.class.startsWith("0x06")).map((p) => (
+                    <option key={p.id} value={p.id}>{p.device_name ?? p.id} · {p.vendor_name} · grupo IOMMU {p.iommugroup ?? "?"}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="check"><input type="checkbox" checked={all} onChange={(e) => setAll(e.target.checked)} />Todas as funções (vídeo + áudio da placa)</label>
+              <label className="check"><input type="checkbox" checked={pcie} onChange={(e) => setPcie(e.target.checked)} />PCI Express (máquina q35)</label>
+              {hw?.pci.length && hw.pci.every((p) => p.iommugroup === undefined || p.iommugroup === -1) && (
+                <div className="warn span-all">IOMMU parece desligado: ative VT-d/AMD-Vi na BIOS e intel_iommu=on no kernel.</div>
+              )}
+            </>
+          )}
+          {adding === "serial" && <p className="muted span-all" style={{ fontSize: 13 }}>Cria uma porta serial (socket), útil pra console de texto e pra Home Assistant OS.</p>}
+          {adding === "dev" && (
+            <>
+              <label className="field">Caminho
+                <input value={path} onChange={(e) => setPath(e.target.value)} list="dev-presets" />
+                <datalist id="dev-presets">
+                  {["/dev/dri/renderD128", "/dev/dri/card0", "/dev/net/tun", "/dev/ttyUSB0", "/dev/ttyACM0", "/dev/kvm", "/dev/fuse"].map((x) => <option key={x} value={x} />)}
+                </datalist>
+              </label>
+              <label className="field">GID dentro do CT<input value={gid} onChange={(e) => setGid(e.target.value)} placeholder="ex.: 104 (grupo render)" /></label>
+              <p className="muted span-all" style={{ fontSize: 12 }}>Pra GPU, use o GID do grupo <span className="mono">render</span> do contêiner (<span className="mono">getent group render</span>). Vale no próximo boot.</p>
+            </>
+          )}
+          <div className="dialog-actions span-all" style={{ marginTop: 8 }}>
+            <button className="btn small primary" disabled={add.isPending || ((adding === "usb" || adding === "pci") && !pick)}>Adicionar</button>
+            <button type="button" className="btn small" onClick={() => setAdding("")}>Cancelar</button>
+          </div>
+        </form>
+      )}
+    </>
   );
 }
 

@@ -12,6 +12,8 @@ import { BackupDialog, GuestDialog, SearchPalette } from "./Dialogs";
 import { NetworkPage } from "./Network";
 import { NewLxcDialog } from "./NewLxc";
 import { NewVmDialog } from "./NewVm";
+import { MyAppsPage } from "./MyApps";
+import { NodePage } from "./NodePage";
 import { StoragePage } from "./Storage";
 import { IconCalendar, IconSidebar } from "./icons";
 import { Login } from "./Login";
@@ -80,7 +82,7 @@ function Shell() {
     });
   };
 
-  const current = NAV.find((n) => n.path === path) ?? NAV[0];
+  const current = NAV.find((n) => n.path === path) ?? NAV.find((n) => n !== NAV[0] && path.startsWith(n.path + "/")) ?? NAV[0];
   const withPanel = (path === "/" && tab === "Recursos") || path === "/nos";
 
   let page;
@@ -91,6 +93,7 @@ function Shell() {
       }[tab] ?? <OverviewPage />;
       break;
     case "/nos": page = <NodesPage />; break;
+    case "/meus-apps": page = <MyAppsPage />; break;
     case "/vms": page = <GuestsPage type="qemu" />; break;
     case "/lxc": page = <GuestsPage type="lxc" />; break;
     case "/apps": page = <AppsPage />; break;
@@ -98,7 +101,10 @@ function Shell() {
     case "/rede": page = <NetworkPage />; break;
     case "/backups": page = <BackupsPage />; break;
     case "/console": page = <ConsolePage />; break;
-    default: page = <SoonPage title="Não encontrado" what="Essa página não existe." />;
+    default:
+      page = path.startsWith("/nos/")
+        ? <NodePage key={path} name={decodeURIComponent(path.slice(5))} />
+        : <SoonPage title="Não encontrado" what="Essa página não existe." />;
   }
 
   return (

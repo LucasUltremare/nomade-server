@@ -7,6 +7,8 @@ import { IconExternal, IconNetwork, IconPlay, IconPower, IconRestart, IconStar, 
 import { FirewallPanel } from "./Firewall";
 import { GuestCharts } from "./GuestCharts";
 import { GuestHardware } from "./GuestHardware";
+import { GuestBackups, GuestTasks } from "./GuestHistory";
+import { GuestNetwork, GuestOptions } from "./GuestNetwork";
 import { CloneDialog, DestroyDialog } from "./GuestManage";
 import { Snapshots } from "./Snapshots";
 import { MigrateDialog } from "./Migrate";
@@ -60,11 +62,17 @@ const ACTIONS: Record<string, { label: string; icon: typeof IconPlay; confirm?: 
   shutdown: { label: "Desligar", icon: IconPower, confirm: "Confirmar desligamento" },
   reboot: { label: "Reiniciar", icon: IconRestart, confirm: "Confirmar reinício" },
   stop: { label: "Forçar parada", icon: IconStop, confirm: "Confirmar parada forçada", danger: true },
+  suspend: { label: "Pausar", icon: IconStop, confirm: "Confirmar pausa" },
+  hibernate: { label: "Hibernar", icon: IconPower, confirm: "Confirmar hibernação" },
+  reset: { label: "Resetar", icon: IconRestart, confirm: "Confirmar reset (sem desligar)", danger: true },
 };
+
+// Ações que não são /status/{action} direto.
+const POWER = new Set(["hibernate", "reset"]);
 
 function actionsFor(g: Guest) {
   if (g.template) return [];
-  if (g.status === "running") return ["shutdown", "reboot", "stop"];
+  if (g.status === "running") return g.type === "qemu" ? ["shutdown", "reboot", "suspend", "hibernate", "reset", "stop"] : ["shutdown", "reboot", "stop"];
   if (g.status === "paused" || g.status === "suspended") return ["resume", "stop"];
   return ["start"];
 }
@@ -77,7 +85,7 @@ export function GuestDialog() {
   const [armed, setArmed] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
   const [exposing, setExposing] = useState(false);
-  const [tab, setTab] = useState<"resumo" | "graficos" | "hardware" | "snapshots" | "firewall">("resumo");
+  const [tab, setTab] = useState<GuestTab>("resumo");
   const [migrating, setMigrating] = useState(false);
   const [sub, setSub] = useState<"" | "clone" | "destroy">("");
   const [armTemplate, setArmTemplate] = useState(false);
@@ -90,7 +98,7 @@ export function GuestDialog() {
   const g = guests?.find((x) => x.id === ui.guestId);
 
   const run = useMutation({
-    mutationFn: (action: string) => api.guestAction(g!, action),
+    mutationFn: (action: string) => (POWER.has(action) ? api.guestPower(g!, action as "hibernate" | "reset") : api.guestAction(g!, action)),
     onSuccess: (_, action) => {
       setDone(`${ACTIONS[action].label}: task enviada ao Proxmox.`);
       setTimeout(refresh, 1500);
@@ -123,7 +131,7 @@ export function GuestDialog() {
   if (sub === "clone") return <CloneDialog g={g} onClose={() => setSub("")} />;
   if (sub === "destroy") return <DestroyDialog g={g} onClose={() => setSub("")} />;
   return (
-    <Modal label={g.name} onClose={close} className={tab === "resumo" ? "" : "wide"}>
+    <Modal label={g.name} onClose={close} className={tab === "resumo" ? "guest-dialog" : "guest-dialog wide xl"}>
       <button className="close" onClick={close} aria-label="Fechar"><IconX /></button>
       <h2>{g.name}</h2>
       <div className="dialog-sub">
@@ -131,12 +139,14 @@ export function GuestDialog() {
         {g.template ? " · template" : ""}
       </div>
       <div className="seg dialog-tabs" role="tablist">
-        <button role="tab" aria-pressed={tab === "resumo"} onClick={() => setTab("resumo")}>Resumo</button>
-        {!g.template && <button role="tab" aria-pressed={tab === "graficos"} onClick={() => setTab("graficos")}>Gráficos</button>}
-        <button role="tab" aria-pressed={tab === "hardware"} onClick={() => setTab("hardware")}>Hardware</button>
-        {!g.template && <button role="tab" aria-pressed={tab === "snapshots"} onClick={() => setTab("snapshots")}>Snapshots</button>}
-        <button role="tab" aria-pressed={tab === "firewall"} onClick={() => setTab("firewall")}>Firewall</button>
+        {GUEST_TABS.filter(([, , onTemplate]) => onTemplate || !g.template).map(([k, label]) => (
+          <button key={k} role="tab" aria-pressed={tab === k} onClick={() => setTab(k)}>{label}</button>
+        ))}
       </div>
+      {tab === "rede" && <GuestNetwork g={g} />}
+      {tab === "opcoes" && <GuestOptions g={g} />}
+      {tab === "backups" && <GuestBackups g={g} />}
+      {tab === "tarefas" && <GuestTasks g={g} />}
       {tab === "graficos" && <GuestCharts g={g} />}
       {tab === "hardware" && <GuestHardware g={g} />}
       {tab === "snapshots" && <Snapshots g={g} />}
@@ -263,6 +273,15 @@ function ExposeForm({ g, onDone }: { g: Guest; onDone: () => void }) {
     </form>
   );
 }
+
+type GuestTab = "resumo" | "graficos" | "hardware" | "rede" | "opcoes" | "snapshots" | "backups" | "tarefas" | "firewall";
+
+// [aba, rótulo, aparece em template]
+const GUEST_TABS: [GuestTab, string, boolean][] = [
+  ["resumo", "Resumo", true], ["graficos", "Gráficos", false], ["hardware", "Hardware", true], ["rede", "Rede", true],
+  ["opcoes", "Opções", true], ["snapshots", "Snapshots", false], ["backups", "Backups", false], ["tarefas", "Tarefas", true],
+  ["firewall", "Firewall", true],
+];
 
 function Meter({ label, value, frac, hot }: { label: string; value: string; frac: number; hot?: boolean }) {
   return (

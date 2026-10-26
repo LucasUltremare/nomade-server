@@ -27,7 +27,15 @@ func newTestServer(t *testing.T) (*httptest.Server, *http.Client) {
 	t.Helper()
 	d := demo.Start()
 	t.Cleanup(d.Close)
-	s, err := New(Config{PVEURL: d.URL(), DataDir: t.TempDir(), Demo: true})
+	// Catálogo de apps local: os testes não dependem da internet.
+	pb := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"page":1,"totalPages":1,"items":[` +
+			`{"slug":"jellyfin","name":"Jellyfin Media Server","logo":"https://x/jellyfin.webp","port":8096,"execute_in":["pve"],"install_methods":[{"type":"default","resources":{"cpu":2,"ram":2048,"hdd":16,"os":"Ubuntu","version":24.04}}],"expand":{"type":{"type":"lxc"},"categories":[{"name":"Media","icon":"play","sort_order":1}]}},` +
+			`{"slug":"homeassistant","name":"Home Assistant OS","port":8123,"expand":{"type":{"type":"vm"},"categories":[]}}` +
+			`]}`))
+	}))
+	t.Cleanup(pb.Close)
+	s, err := New(Config{PVEURL: d.URL(), DataDir: t.TempDir(), Demo: true, AppsURL: pb.URL})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -747,5 +755,157 @@ func TestVNCProxy(t *testing.T) {
 	}
 	if w := int(init[0])<<8 | int(init[1]); w != 1024 || res[3] != 0 {
 		t.Errorf("largura %d, resultado %v", w, res)
+	}
+}
+
+func TestGuestOptionsNetDevices(t *testing.T) {
+	ts, c := loginRoot(t)
+	var cfg guestConfig
+	call(t, c, "GET", ts.URL+"/api/guests/qemu/102/config", nil, &cfg)
+	if len(cfg.Nets) != 1 || cfg.Nets[0].Model != "virtio" || cfg.Nets[0].MAC == "" || cfg.Options["agent"] != "1" {
+		t.Fatalf("config da vm: nets=%+v opts=%v", cfg.Nets, cfg.Options)
+	}
+	mac := cfg.Nets[0].MAC
+
+	// Opções: lista branca e validação.
+	if code := call(t, c, "PUT", ts.URL+"/api/guests/qemu/102/options", map[string]string{"args": "-x"}, nil); code != 400 {
+		t.Errorf("opção fora da lista devia dar 400: %d", code)
+	}
+	call(t, c, "PUT", ts.URL+"/api/guests/qemu/102/options", map[string]string{"onboot": "1", "startup": "order=2,up=30", "description": "VM de dev\ncom notas", "bios": "ovmf"}, nil)
+	call(t, c, "GET", ts.URL+"/api/guests/qemu/102/config", nil, &cfg)
+	if cfg.Options["onboot"] != "1" || cfg.Options["startup"] != "order=2,up=30" || cfg.Options["bios"] != "ovmf" {
+		t.Errorf("opções salvas: %v", cfg.Options)
+	}
+
+	// Rede da VM: troca modelo e VLAN, mantém o MAC.
+	call(t, c, "PUT", ts.URL+"/api/guests/qemu/102/net/net0", map[string]any{"model": "e1000e", "bridge": "vmbr1", "tag": 20, "firewall": true}, nil)
+	call(t, c, "GET", ts.URL+"/api/guests/qemu/102/config", nil, &cfg)
+	if n := cfg.Nets[0]; n.Model != "e1000e" || n.MAC != mac || n.Bridge != "vmbr1" || n.Tag != 20 || !n.Firewall {
+		t.Errorf("net0 depois de editar: %+v (mac antes %s)", n, mac)
+	}
+	// Rede do LXC: IP fixo exige prefixo.
+	if code := call(t, c, "PUT", ts.URL+"/api/guests/lxc/104/net/net0", map[string]any{"bridge": "vmbr0", "ip": "10.0.10.50"}, nil); code != 400 {
+		t.Errorf("IP sem prefixo devia dar 400: %d", code)
+	}
+	var added struct {
+		Key string `json:"key"`
+	}
+	call(t, c, "PUT", ts.URL+"/api/guests/lxc/104/net/new", map[string]any{"bridge": "vmbr1", "ip": "10.0.20.9/24", "gw": "10.0.20.1"}, &added)
+	call(t, c, "GET", ts.URL+"/api/guests/lxc/104/config", nil, &cfg)
+	if added.Key != "net1" || len(cfg.Nets) != 2 || cfg.Nets[1].IP != "10.0.20.9/24" || cfg.Nets[1].Name != "eth1" {
+		t.Errorf("placa nova: %q %+v", added.Key, cfg.Nets)
+	}
+	call(t, c, "DELETE", ts.URL+"/api/guests/lxc/104/config/net1", nil, nil)
+
+	// Dispositivos.
+	call(t, c, "POST", ts.URL+"/api/guests/qemu/102/devices", map[string]any{"kind": "pci", "host": "0000:01:00.0", "pcie": true, "allFunctions": true}, &added)
+	call(t, c, "GET", ts.URL+"/api/guests/qemu/102/config", nil, &cfg)
+	if added.Key != "hostpci0" || !slices.ContainsFunc(cfg.Devices, func(d deviceView) bool { return d.Value == "0000:01:00,pcie=1" }) {
+		t.Errorf("pci: %q %+v", added.Key, cfg.Devices)
+	}
+	if code := call(t, c, "POST", ts.URL+"/api/guests/lxc/101/devices", map[string]any{"kind": "dev", "path": "/etc/shadow"}, nil); code != 400 {
+		t.Errorf("caminho fora de /dev devia dar 400: %d", code)
+	}
+	call(t, c, "POST", ts.URL+"/api/guests/lxc/101/devices", map[string]any{"kind": "dev", "path": "/dev/dri/renderD128", "gid": "104"}, &added)
+	if added.Key != "dev0" {
+		t.Errorf("dev: %q", added.Key)
+	}
+
+	// Opções de disco preservam volume e tamanho.
+	call(t, c, "PUT", ts.URL+"/api/guests/qemu/102/disks/scsi0/options", map[string]string{"cache": "writeback", "discard": "on"}, nil)
+	cfg = guestConfig{}
+	call(t, c, "GET", ts.URL+"/api/guests/qemu/102/config", nil, &cfg)
+	d := cfg.Disks[slices.IndexFunc(cfg.Disks, func(d diskView) bool { return d.Key == "scsi0" })]
+	if d.Opts["cache"] != "writeback" || d.Opts["discard"] != "on" || d.Size == 0 || d.Volume == "" {
+		t.Errorf("disco: %+v", d)
+	}
+}
+
+func TestPhase1Misc(t *testing.T) {
+	ts, c := loginRoot(t)
+	var up struct {
+		UPID string `json:"upid"`
+	}
+	// Hibernar.
+	if code := call(t, c, "POST", ts.URL+"/api/guests/qemu/102/power/hibernate", nil, &up); code != 200 {
+		t.Fatalf("hibernar: %d", code)
+	}
+	if code := call(t, c, "POST", ts.URL+"/api/guests/lxc/104/power/reset", nil, nil); code != 400 {
+		t.Errorf("reset de LXC não existe: %d", code)
+	}
+	// Ligar tudo do nó.
+	call(t, c, "POST", ts.URL+"/api/nodes/pve-01/bulk/startall", nil, &up)
+	waitTask(t, ts, c, up.UPID)
+	var guests []guestView
+	call(t, c, "GET", ts.URL+"/api/guests", nil, &guests)
+	if i := slices.IndexFunc(guests, func(g guestView) bool { return g.VMID == 110 }); guests[i].Status != "running" {
+		t.Errorf("startall devia ligar a 110: %s", guests[i].Status)
+	}
+	// Backups e tarefas de um guest.
+	var bks []guestBackupFile
+	call(t, c, "GET", ts.URL+"/api/guests/lxc/101/backups", nil, &bks)
+	if len(bks) == 0 || bks[0].CTime < bks[len(bks)-1].CTime {
+		t.Errorf("backups do 101: %+v", bks)
+	}
+	call(t, c, "POST", ts.URL+"/api/guests/lxc/101/backup", map[string]string{"storage": "nas-backup"}, &up)
+	if up.UPID == "" {
+		t.Error("backup agora sem upid")
+	}
+	var tasks []taskRow
+	call(t, c, "GET", ts.URL+"/api/guests/lxc/101/tasks", nil, &tasks)
+	if len(tasks) < 3 {
+		t.Errorf("tarefas do 101: %d", len(tasks))
+	}
+	if code := call(t, c, "POST", ts.URL+"/api/guests/lxc/101/restore", map[string]string{"volid": bks[0].Volid, "confirm": "jellyfin"}, nil); code != 409 {
+		t.Errorf("restaurar por cima de CT ligado devia dar 409: %d", code)
+	}
+	// Repositórios: liga o no-subscription, desliga o enterprise.
+	var repos struct {
+		Files []struct {
+			Path string `json:"path"`
+		} `json:"files"`
+		Std []struct {
+			Handle string `json:"handle"`
+			Status *int   `json:"status"`
+		} `json:"standard-repos"`
+	}
+	call(t, c, "POST", ts.URL+"/api/nodes/pve-01/repos", map[string]any{"handle": "no-subscription"}, nil)
+	call(t, c, "POST", ts.URL+"/api/nodes/pve-01/repos", map[string]any{"path": "/etc/apt/sources.list.d/pve-enterprise.sources", "index": 0, "enabled": false}, nil)
+	call(t, c, "GET", ts.URL+"/api/nodes/pve-01/repos", nil, &repos)
+	st := map[string]int{}
+	for _, r := range repos.Std {
+		if r.Status != nil {
+			st[r.Handle] = *r.Status
+		}
+	}
+	if st["no-subscription"] != 1 || st["enterprise"] != 0 {
+		t.Errorf("repos: %v", st)
+	}
+}
+
+func TestMyApps(t *testing.T) {
+	ts, c := loginRoot(t)
+	var apps []myApp
+	call(t, c, "GET", ts.URL+"/api/myapps", nil, &apps)
+	jf := apps[slices.IndexFunc(apps, func(a myApp) bool { return a.VMID == 101 })]
+	if jf.Slug != "jellyfin" || jf.Port != 8096 || jf.IP == "" || jf.URL != "http://"+jf.IP+":8096" || jf.Up == nil || !*jf.Up {
+		t.Fatalf("jellyfin: %+v", jf)
+	}
+	ha := apps[slices.IndexFunc(apps, func(a myApp) bool { return a.VMID == 107 })]
+	if ha.Slug != "homeassistant" || ha.IP == "" {
+		t.Errorf("home assistant (VM com agente): %+v", ha)
+	}
+	// Ajuste manual + link do Tailscale.
+	call(t, c, "PUT", ts.URL+"/api/myapps/104", map[string]any{"title": "Automações", "port": 5678}, nil)
+	call(t, c, "PUT", ts.URL+"/api/settings/tailscale", map[string]any{"authKey": "tskey-auth-abc123456789", "tailnet": "tail1a2b.ts.net"}, nil)
+	call(t, c, "POST", ts.URL+"/api/tailscale/command", map[string]any{"action": "expose", "vmid": 104, "hostname": "n8n", "port": 5678}, nil)
+	call(t, c, "PUT", ts.URL+"/api/myapps/113", map[string]any{"hidden": true}, nil)
+	call(t, c, "GET", ts.URL+"/api/myapps", nil, &apps)
+	n8n := apps[slices.IndexFunc(apps, func(a myApp) bool { return a.VMID == 104 })]
+	if n8n.Title != "Automações" || n8n.Port != 5678 || n8n.TSURL != "https://n8n.tail1a2b.ts.net" {
+		t.Errorf("n8n: %+v", n8n)
+	}
+	if slices.ContainsFunc(apps, func(a myApp) bool { return a.VMID == 113 }) {
+		t.Error("app escondido apareceu")
 	}
 }

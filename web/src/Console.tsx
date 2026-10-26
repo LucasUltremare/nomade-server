@@ -1,45 +1,104 @@
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { kindLabel, health } from "./format";
-import { IconTerminal, IconX } from "./icons";
+import { IconMinimize, IconTerminal, IconX } from "./icons";
 import { Terminal, type ConsoleTarget } from "./Terminal";
 import { VncConsole } from "./VncConsole";
 import { useGuests, useStatus, useUI } from "./state";
 
-/** Console em tela cheia, aberto de qualquer lugar (loja, guest, painel do nó). */
+/**
+ * Consoles abertos de qualquer lugar (loja, guest, painel do nó). Fechar a
+ * janela só minimiza: o terminal continua conectado, e o que roda nele
+ * (instalação de app, atualização) segue até terminar. A barra embaixo lista
+ * as sessões; encerrar de verdade é ação separada.
+ */
 export function ConsoleModal() {
   const ui = useUI();
   const qc = useQueryClient();
-  const t = ui.consoleTarget;
+  const active = ui.consoles.find((c) => c.id === ui.activeConsole) ?? null;
+  const [confirmEnd, setConfirmEnd] = useState<string | null>(null);
+
+  const minimize = () => {
+    ui.showConsole(null);
+    // O que rodou no console pode ter criado guests.
+    for (const k of ["guests", "overview", "status", "node", "myapps"]) qc.invalidateQueries({ queryKey: [k] });
+  };
 
   useEffect(() => {
-    if (!t) return;
     const onKey = (e: KeyboardEvent) => {
-      // Esc vai pro terminal (vim, nano); fechar é pelo botão ou ⌘/Ctrl+Shift+X.
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "x") ui.openConsole(null);
+      // Esc vai pro terminal (vim, nano); minimizar é ⌘/Ctrl+Shift+X.
+      if (ui.activeConsole && (e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "x") minimize();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [t, ui]);
+  });
 
-  if (!t) return null;
-  const close = () => {
-    ui.openConsole(null);
-    // O que rodou no console pode ter criado guests.
-    for (const k of ["guests", "overview", "status", "node"]) qc.invalidateQueries({ queryKey: [k] });
+  // Fechar a aba derruba as sessões: avisa se tem alguma conectada.
+  const live = ui.consoles.some((c) => c.status === "connected" || c.status === "connecting");
+  useEffect(() => {
+    if (!live) return;
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [live]);
+
+  const end = (id: string) => {
+    setConfirmEnd(null);
+    ui.closeConsole(id);
+    for (const k of ["guests", "overview", "status", "node", "myapps"]) qc.invalidateQueries({ queryKey: [k] });
   };
+
   return (
-    <div className="overlay console-overlay">
-      <div className="console-modal" role="dialog" aria-modal="true" aria-label={t.title}>
-        <div className="console-head">
-          <IconTerminal width={16} height={16} />
-          <b>{t.title}</b>
-          <span className="mono muted">{t.kind === "node" ? `shell · ${t.node}` : `${t.kind === "qemu" ? "VM" : "CT"} ${t.vmid} · ${t.node}`}</span>
-          <button className="close" onClick={close} aria-label="Fechar console" title="Fechar (⌘⇧X)"><IconX /></button>
+    <>
+      {ui.consoles.map((c) => {
+        const t = c.target;
+        const shown = c.id === active?.id;
+        return (
+          <div key={c.id} className="overlay console-overlay" style={shown ? undefined : { display: "none" }}>
+            <div className="console-modal" role="dialog" aria-modal="true" aria-label={t.title}>
+              <div className="console-head">
+                <IconTerminal width={16} height={16} />
+                <b>{t.title}</b>
+                <span className="mono muted">{t.kind === "node" ? `shell · ${t.node}` : `${t.kind === "qemu" ? "VM" : "CT"} ${t.vmid} · ${t.node}`}</span>
+                <span className="console-actions">
+                  {confirmEnd === c.id ? (
+                    <button className="btn small danger" onClick={() => end(c.id)}>Encerrar mesmo</button>
+                  ) : (
+                    <button className="btn small" onClick={() => (c.status === "connected" ? setConfirmEnd(c.id) : end(c.id))}>Encerrar sessão</button>
+                  )}
+                  <button className="close" onClick={minimize} aria-label="Minimizar" title="Minimizar: a sessão continua rodando (⌘⇧X)">
+                    <IconMinimize />
+                  </button>
+                </span>
+              </div>
+              {confirmEnd === c.id && (
+                <div className="console-warn">Encerrar fecha o terminal no Proxmox e interrompe o que estiver rodando nele.</div>
+              )}
+              {t.kind === "qemu"
+                ? <VncConsole target={t} onStatus={(st) => ui.setConsoleStatus(c.id, st)} />
+                : <Terminal target={t} onStatus={(st) => ui.setConsoleStatus(c.id, st)} />}
+            </div>
+          </div>
+        );
+      })}
+      {ui.consoles.length > 0 && !active && (
+        <div className="console-dock" role="region" aria-label="Terminais abertos">
+          {ui.consoles.map((c) => (
+            <div key={c.id} className="dock-item">
+              <button className="dock-open" onClick={() => ui.showConsole(c.id)} title="Abrir">
+                <span className={`dot ${c.status === "connected" ? "running" : c.status === "connecting" ? "paused" : "stopped"}`} />
+                <span className="dock-title">{c.target.title}</span>
+                <span className="mono muted">{c.status === "connected" ? "rodando" : c.status === "connecting" ? "conectando" : "encerrado"}</span>
+              </button>
+              <button className="dock-x" aria-label={`Encerrar ${c.target.title}`} title="Encerrar sessão"
+                onClick={() => (c.status === "connected" ? (window.confirm(`Encerrar "${c.target.title}"? O que estiver rodando é interrompido.`) && end(c.id)) : end(c.id))}>
+                <IconX width={14} height={14} />
+              </button>
+            </div>
+          ))}
         </div>
-        {t.kind === "qemu" ? <VncConsole target={t} /> : <Terminal target={t} />}
-      </div>
-    </div>
+      )}
+    </>
   );
 }
 

@@ -15,14 +15,27 @@ interface UI {
   setBackupOpen: (v: boolean) => void;
   range: Range;
   setRange: (r: Range) => void;
-  /** Console em tela cheia (shell do nó, de um LXC, ou rodando um comando). */
-  consoleTarget: ConsoleTarget | null;
-  openConsole: (t: ConsoleTarget | null) => void;
+  /**
+   * Consoles abertos. Fechar a janela só minimiza: a sessão (e o que estiver
+   * rodando nela, tipo a instalação de um app) continua até encerrar.
+   */
+  consoles: ConsoleSession[];
+  activeConsole: string | null;
+  openConsole: (t: ConsoleTarget) => void;
+  showConsole: (id: string | null) => void;
+  closeConsole: (id: string) => void;
+  setConsoleStatus: (id: string, status: ConsoleSession["status"]) => void;
   /** Diálogo de novo LXC; o valor é o nó sugerido. */
   newLxc: string | null;
   setNewLxc: (node: string | null) => void;
   newVm: string | null;
   setNewVm: (node: string | null) => void;
+}
+
+export interface ConsoleSession {
+  id: string;
+  target: ConsoleTarget;
+  status: "connecting" | "connected" | "closed" | "error";
 }
 
 const Ctx = createContext<UI | null>(null);
@@ -33,15 +46,28 @@ export function UIProvider({ children }: { children: ReactNode }) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [backupOpen, setBackupOpen] = useState(false);
   const [range, setRange] = useState<Range>("24h");
-  const [consoleTarget, openConsole] = useState<ConsoleTarget | null>(null);
+  const [consoles, setConsoles] = useState<ConsoleSession[]>([]);
+  const [activeConsole, showConsole] = useState<string | null>(null);
+  const openConsole = useCallback((target: ConsoleTarget) => {
+    const id = Math.random().toString(36).slice(2);
+    setConsoles((c) => [...c, { id, target, status: "connecting" }]);
+    showConsole(id);
+  }, []);
+  const closeConsole = useCallback((id: string) => {
+    setConsoles((c) => c.filter((x) => x.id !== id));
+    showConsole((a) => (a === id ? null : a));
+  }, []);
+  const setConsoleStatus = useCallback((id: string, status: ConsoleSession["status"]) => {
+    setConsoles((c) => c.map((x) => (x.id === id && x.status !== status ? { ...x, status } : x)));
+  }, []);
   const [newLxc, setNewLxc] = useState<string | null>(null);
   const [newVm, setNewVm] = useState<string | null>(null);
   const value = useMemo(
     () => ({
       node, setNode, guestId, openGuest, searchOpen, setSearchOpen, backupOpen, setBackupOpen, range, setRange,
-      consoleTarget, openConsole, newLxc, setNewLxc, newVm, setNewVm,
+      consoles, activeConsole, openConsole, showConsole, closeConsole, setConsoleStatus, newLxc, setNewLxc, newVm, setNewVm,
     }),
-    [node, guestId, searchOpen, backupOpen, range, consoleTarget, newLxc, newVm],
+    [node, guestId, searchOpen, backupOpen, range, consoles, activeConsole, openConsole, closeConsole, setConsoleStatus, newLxc, newVm],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

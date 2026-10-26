@@ -193,6 +193,22 @@ function AddIface({ node, type, ifaces, onClose }: { node: string; type: "bridge
   );
 }
 
+function TailnetField() {
+  const qc = useQueryClient();
+  const { data: settings } = useSettings();
+  const [v, setV] = useState<string | null>(null);
+  const save = useMutation({ mutationFn: (t: string) => api.setTailnet(t), onSuccess: (s) => { qc.setQueryData(["settings"], s); setV(null); } });
+  if (!settings?.root) return null;
+  const cur = settings.tailscale.tailnet;
+  return (
+    <form className="ts-row" style={{ marginTop: 0 }} onSubmit={(e) => { e.preventDefault(); save.mutate(v ?? cur); }}>
+      <input value={v ?? cur} onChange={(e) => setV(e.target.value)} placeholder="sua-tailnet.ts.net" aria-label="Domínio da tailnet" />
+      <button className="btn small" disabled={v === null || v === cur || save.isPending}>Salvar</button>
+      {save.error && <span className="err" style={{ margin: 0 }}>{(save.error as Error).message}</span>}
+    </form>
+  );
+}
+
 function TailscaleCard({ node, bridges }: { node: string; bridges: NetIface[] }) {
   const ui = useUI();
   const qc = useQueryClient();
@@ -276,6 +292,7 @@ function TailscaleCard({ node, bridges }: { node: string; bridges: NetIface[] })
 
         <div className="card ts-card">
           <b>3. Apps com endereço próprio</b>
+          <TailnetField />
           <p>
             Na loja de apps marque <i>Publicar no Tailscale</i>, ou abra um contêiner e use <i>Expor no Tailscale</i>.
             Ele ganha <span className="mono">https://nome.sua-tailnet.ts.net</span> com certificado.

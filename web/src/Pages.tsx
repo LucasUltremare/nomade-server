@@ -211,7 +211,7 @@ export function NodesPage() {
         {(data?.nodes ?? []).map((n) => {
           const count = (guests ?? []).filter((g) => g.node === n.name && !g.template);
           return (
-            <button key={n.name} className="card node-card" onClick={() => ui.setNode(n.name)} aria-pressed={ui.node === n.name}>
+            <button key={n.name} className="card node-card" onClick={() => { ui.setNode(n.name); navigate(`/nos/${encodeURIComponent(n.name)}`); }} aria-pressed={ui.node === n.name}>
               <div className="card-top">
                 <span>{n.ip ?? ""}</span>
                 <span className={`dot ${n.online ? (n.cpu >= HOT ? "hot" : "running") : "stopped"}`} />
