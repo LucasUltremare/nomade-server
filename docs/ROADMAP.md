@@ -127,9 +127,7 @@ Goal: everything the Proxmox VE web UI does, plus Mia-only extras on top.
 
 ## Phases
 
-1. **Guest details**: guest network and options, full VM hardware, missing power actions, bulk actions, per-guest backups and tasks, repositories, upgrades in the UI.
-2. **System and storage**: disks (wipe, GPT, ZFS/LVM/dir), storage definitions, node DNS/hosts/time/syslog/WoL/notes/charts, certificates and ACME, notifications.
-3. **Datacenter**: users, groups, tokens, 2FA, realms, roles, permissions, pools; HA; replication; cluster create/join; datacenter options; resource mappings; firewall groups/aliases/IPSets/log; metric servers; Cloud-Init; OVA/ESXi import.
+1. **Guest details** (v0.5.0): guest network and options, full VM hardware, LXC device passthrough, missing power actions, bulk start/stop, per-guest backups and tasks, repositories, upgrades in the UI. Extras: **My apps** homepage, **Update all**.
+2. **System and storage** (v0.6.0): disks (wipe, GPT, ZFS/LVM/dir), storage definitions, node DNS/hosts/time/syslog/WoL/notes/charts, certificates and ACME, notifications, resource mappings. Extras: **shared folders**, **easy GPU/USB**, **Nomade stacks**.
+3. **Datacenter** (v0.7.0): users, groups, tokens, 2FA, realms, roles, permissions, pools; HA; replication; cluster create/join; datacenter options; firewall groups/aliases/IPSets/log; metric servers; Cloud-Init; OVA/ESXi import. Extras: Mia's own API token for background jobs, **automatic restore test**, scheduled actions, automatic snapshots.
 4. **Advanced**: SDN, Ceph, QEMU monitor, subscription.
-
-Mia-only extras get mixed into each phase where they fit (e.g. shared folders and GPU/USB with phase 2's resource mappings).
