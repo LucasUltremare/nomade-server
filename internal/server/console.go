@@ -21,7 +21,7 @@ func consoleTarget(r *http.Request) (node, kind string, vmid int, ok bool) {
 	switch kind {
 	case "node":
 		return node, kind, 0, node != ""
-	case "lxc":
+	case "lxc", "qemu":
 		return node, kind, vmid, node != "" && vmid > 0
 	}
 	return "", "", 0, false
@@ -37,8 +37,19 @@ func (s *Server) handleConsoleOpen(w http.ResponseWriter, r *http.Request, a pve
 		writeErr(w, http.StatusBadRequest, "json inválido")
 		return
 	}
-	if body.Node == "" || (body.Kind != "node" && body.Kind != "lxc") || (body.Kind == "lxc" && body.VMID <= 0) {
+	if body.Node == "" || (body.Kind != "node" && body.Kind != "lxc" && body.Kind != "qemu") || (body.Kind != "node" && body.VMID <= 0) {
 		writeErr(w, http.StatusBadRequest, "console inválido")
+		return
+	}
+	if body.Kind == "qemu" {
+		// VM: console gráfico (VNC) via noVNC no navegador.
+		var t pve.Term
+		path := pve.GuestPath(body.Node, "qemu", body.VMID) + "/vncproxy"
+		if err := s.pve.Post(r.Context(), &a, path, url.Values{"websocket": {"1"}}, &t); err != nil {
+			writePVEErr(w, err)
+			return
+		}
+		writeJSON(w, map[string]any{"node": body.Node, "kind": "qemu", "vmid": body.VMID, "port": int(t.Port), "ticket": t.Ticket, "user": a.User})
 		return
 	}
 	t, err := s.pve.Termproxy(r.Context(), &a, body.Node, body.Kind, body.VMID)

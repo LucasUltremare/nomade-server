@@ -31,12 +31,15 @@ Unattended install: `MIA_YES=1 bash install.sh install` (also `update` and `unin
 
 - **Overview**: average cluster load compared with the previous period (24h, 7d, 30d), CPU distribution across all guests with the peak highlighted, CPU and RAM trend with backup windows (taken from `vzdump` tasks) and which guests drove the peak.
 - **Node panel**: CPU, load, memory, uptime, processor, IP, ZFS pool and guests, plus the node shell.
-- **Console**: node shell and LXC consoles in the browser (xterm.js over Proxmox's own `termproxy`, proxied by Mia with the user's ticket). VM consoles still open noVNC in Proxmox.
+- **Console**: node shell and LXC consoles (xterm.js over Proxmox's own `termproxy`) and VM screens (noVNC over `vncproxy`), all in the browser, proxied by Mia with the user's ticket.
 - **Apps**: the [Proxmox VE Helper-Scripts](https://community-scripts.org) catalog (~700 apps), with search and categories. Installing runs the script in the node console so you watch it live and can answer its prompts. CPU, RAM and disk come pre-filled from the script's defaults.
 - **New LXC**: template (downloaded on the fly if needed), resources, storage, bridge, VLAN, DHCP or static IP, password or SSH key, nesting and `/dev/net/tun`, with the task log streamed live.
-- **Guests**: VM and LXC lists; detail view with start, shutdown, reboot and force stop (with confirmation), console, favorites, and tabs for:
-  - **Hardware**: CPU, RAM and swap; disks and mount points (grow, add, move to another storage, detach, delete unused);
+- **Guests**: VM and LXC lists; detail view with start, shutdown, reboot and force stop (with confirmation), console, clone, convert to template (and create from template), delete (typing the name to confirm), favorites, and tabs for:
+  - **Charts**: CPU, memory, network and disk over 1h, 24h, 7d or 30d;
+  - **Hardware**: CPU, RAM and swap; disks and mount points (grow, add, move to another storage, detach, delete unused); the VM's CD/DVD ISO;
+  - **Snapshots**: take (with RAM for running VMs), roll back, delete;
   - **Firewall**: the guest's own rules.
+- **New VM**: from an ISO, with presets for Linux, Windows 11 (UEFI, TPM 2.0, Secure Boot), Windows 10 and others.
 - **Migration**: move one guest or several from a node to another (VMs live; LXCs restart on the target).
 - **Health**: one list of what needs attention (SMART failures and SSD wear, degraded ZFS pools, stopped PVE services, pending updates, certificates about to expire, storage filling up, nodes offline, guests with no backup job), plus disk, service, update and certificate details. Updates can be run in the node console.
 - **Backups**: scheduled jobs (create, edit, enable/disable, run now, retention) and, per guest, the last backup found and whether a job covers it.
@@ -52,8 +55,6 @@ Unattended install: `MIA_YES=1 bash install.sh install` (also `update` and `unin
 - **Updates**: Mia checks GitHub for a newer release and shows it in the sidebar. `root@pam` can update with one click (a systemd path unit runs the installer as root; Mia itself stays unprivileged).
 
 Things that run as root on the node (app installs, Tailscale) go through the node console, so they need `root@pam` and you can read every command before and while it runs.
-
-Not there yet: the graphical VM console (noVNC) inside Mia; it opens in Proxmox for now.
 
 ## Development
 

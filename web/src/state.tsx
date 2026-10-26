@@ -21,6 +21,8 @@ interface UI {
   /** Diálogo de novo LXC; o valor é o nó sugerido. */
   newLxc: string | null;
   setNewLxc: (node: string | null) => void;
+  newVm: string | null;
+  setNewVm: (node: string | null) => void;
 }
 
 const Ctx = createContext<UI | null>(null);
@@ -33,12 +35,13 @@ export function UIProvider({ children }: { children: ReactNode }) {
   const [range, setRange] = useState<Range>("24h");
   const [consoleTarget, openConsole] = useState<ConsoleTarget | null>(null);
   const [newLxc, setNewLxc] = useState<string | null>(null);
+  const [newVm, setNewVm] = useState<string | null>(null);
   const value = useMemo(
     () => ({
       node, setNode, guestId, openGuest, searchOpen, setSearchOpen, backupOpen, setBackupOpen, range, setRange,
-      consoleTarget, openConsole, newLxc, setNewLxc,
+      consoleTarget, openConsole, newLxc, setNewLxc, newVm, setNewVm,
     }),
-    [node, guestId, searchOpen, backupOpen, range, consoleTarget, newLxc],
+    [node, guestId, searchOpen, backupOpen, range, consoleTarget, newLxc, newVm],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

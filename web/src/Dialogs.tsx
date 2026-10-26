@@ -5,7 +5,10 @@ import { api, type Guest } from "./api";
 import { HOT, bytes, bytesPair, health, kindLabel, pct, uptime } from "./format";
 import { IconExternal, IconNetwork, IconPlay, IconPower, IconRestart, IconStar, IconStop, IconTerminal, IconX } from "./icons";
 import { FirewallPanel } from "./Firewall";
+import { GuestCharts } from "./GuestCharts";
 import { GuestHardware } from "./GuestHardware";
+import { CloneDialog, DestroyDialog } from "./GuestManage";
+import { Snapshots } from "./Snapshots";
 import { MigrateDialog } from "./Migrate";
 import { pveURL } from "./NodePanel";
 import { navigate } from "./router";
@@ -74,8 +77,14 @@ export function GuestDialog() {
   const [armed, setArmed] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
   const [exposing, setExposing] = useState(false);
-  const [tab, setTab] = useState<"resumo" | "hardware" | "firewall">("resumo");
+  const [tab, setTab] = useState<"resumo" | "graficos" | "hardware" | "snapshots" | "firewall">("resumo");
   const [migrating, setMigrating] = useState(false);
+  const [sub, setSub] = useState<"" | "clone" | "destroy">("");
+  const [armTemplate, setArmTemplate] = useState(false);
+  const tmpl = useMutation({
+    mutationFn: () => api.makeTemplate(g!),
+    onSuccess: () => { setArmTemplate(false); setTimeout(refresh, 800); },
+  });
   const { data: status } = useStatus();
   const multiNode = (status?.nodes ?? []).filter((n) => n.online).length > 1;
   const g = guests?.find((x) => x.id === ui.guestId);
@@ -96,6 +105,8 @@ export function GuestDialog() {
     setExposing(false);
     setTab("resumo");
     setMigrating(false);
+    setSub("");
+    setArmTemplate(false);
     run.reset();
   };
   if (!g) {
@@ -109,6 +120,8 @@ export function GuestDialog() {
   const isFav = favs.ids.includes(g.id);
   const hot = g.cpu >= HOT;
   if (migrating) return <MigrateDialog node={g.node} only={g} onClose={() => setMigrating(false)} />;
+  if (sub === "clone") return <CloneDialog g={g} onClose={() => setSub("")} />;
+  if (sub === "destroy") return <DestroyDialog g={g} onClose={() => setSub("")} />;
   return (
     <Modal label={g.name} onClose={close} className={tab === "resumo" ? "" : "wide"}>
       <button className="close" onClick={close} aria-label="Fechar"><IconX /></button>
@@ -119,10 +132,14 @@ export function GuestDialog() {
       </div>
       <div className="seg dialog-tabs" role="tablist">
         <button role="tab" aria-pressed={tab === "resumo"} onClick={() => setTab("resumo")}>Resumo</button>
+        {!g.template && <button role="tab" aria-pressed={tab === "graficos"} onClick={() => setTab("graficos")}>Gráficos</button>}
         <button role="tab" aria-pressed={tab === "hardware"} onClick={() => setTab("hardware")}>Hardware</button>
+        {!g.template && <button role="tab" aria-pressed={tab === "snapshots"} onClick={() => setTab("snapshots")}>Snapshots</button>}
         <button role="tab" aria-pressed={tab === "firewall"} onClick={() => setTab("firewall")}>Firewall</button>
       </div>
+      {tab === "graficos" && <GuestCharts g={g} />}
       {tab === "hardware" && <GuestHardware g={g} />}
+      {tab === "snapshots" && <Snapshots g={g} />}
       {tab === "firewall" && <FirewallPanel scope={{ scope: "guest", kind: g.type, vmid: g.vmid }} />}
       {tab === "resumo" && <>
 
@@ -158,19 +175,26 @@ export function GuestDialog() {
             </button>
           );
         })}
-        {g.status === "running" && (g.type === "lxc" ? (
+        {g.status === "running" && (
           <button className="btn" onClick={() => {
             close();
-            ui.openConsole({ node: g.node, kind: "lxc", vmid: g.vmid, title: g.name });
+            ui.openConsole({ node: g.node, kind: g.type, vmid: g.vmid, title: g.name });
           }}>
             <IconTerminal width={15} height={15} /> Console
           </button>
+        )}
+        {g.template ? (
+          <button className="btn primary" onClick={() => setSub("clone")}>Criar a partir deste template</button>
         ) : (
-          <a className="btn" target="_blank" rel="noreferrer"
-            href={pveURL(`?console=kvm&novnc=1&vmid=${g.vmid}&vmname=${encodeURIComponent(g.name)}&node=${encodeURIComponent(g.node)}&resize=scale`)}>
-            <IconTerminal width={15} height={15} /> Console ↗
-          </a>
-        ))}
+          <button className="btn" onClick={() => setSub("clone")}>Clonar</button>
+        )}
+        {!g.template && g.status !== "running" && (
+          <button className={`btn ${armTemplate ? "primary" : ""}`} disabled={tmpl.isPending}
+            onClick={() => (armTemplate ? tmpl.mutate() : setArmTemplate(true))}>
+            {armTemplate ? "Confirmar: virar template" : "Virar template"}
+          </button>
+        )}
+        {g.status !== "running" && <button className="btn danger" onClick={() => setSub("destroy")}>Apagar</button>}
         {g.type === "lxc" && g.status === "running" && (
           <button className="btn" onClick={() => setExposing((v) => !v)} aria-expanded={exposing}>
             <IconNetwork width={15} height={15} /> Expor no Tailscale
@@ -187,6 +211,8 @@ export function GuestDialog() {
         </a>
       </div>
       {exposing && <ExposeForm g={g} onDone={close} />}
+      {armTemplate && <div className="warn">Template não liga mais: vira modelo pra criar cópias. Não dá pra desfazer pelo painel.</div>}
+      {tmpl.error && <div className="err">{(tmpl.error as Error).message}</div>}
       {run.error && <div className="err">{(run.error as Error).message}</div>}
       {done && !run.error && <div className="ok-msg">{done}</div>}
       </>}

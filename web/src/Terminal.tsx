@@ -6,7 +6,7 @@ import { api } from "./api";
 
 export interface ConsoleTarget {
   node: string;
-  kind: "node" | "lxc";
+  kind: "node" | "lxc" | "qemu";
   vmid?: number;
   title: string;
   /** Comando digitado assim que o shell responder (loja de apps, Tailscale). */

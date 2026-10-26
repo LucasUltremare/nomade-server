@@ -757,3 +757,50 @@ td .cell-bar.hot i { background: var(--hot); }
 
 .field { min-width: 0; }
 .field input, .field select { width: 100%; min-width: 0; }
+
+/* ---------- Gráficos do guest ---------- */
+.gcharts { display: grid; gap: 14px; }
+.gcharts > .seg { padding-top: 0; }
+.mchart-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
+.mchart-head b { font-weight: 500; font-size: 13px; }
+.mchart-head .legend { gap: 12px; font-size: 12px; }
+.mchart-head .legend .mono { color: var(--ink); }
+.mchart-foot { display: flex; justify-content: space-between; font-size: 10px; margin-top: 2px; }
+
+/* ---------- Snapshots ---------- */
+.snap-form { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto; gap: 0 10px; align-items: end; }
+.snap-form .btn { margin-bottom: 4px; }
+.snap-form .check { grid-column: 1 / -1; }
+.snap-list { list-style: none; margin: 18px 0 8px; padding: 0 0 0 6px; }
+.snap-list li { position: relative; display: flex; gap: 12px; align-items: center; padding: 8px 0 8px 18px; border-left: 2px solid var(--line-strong); }
+.snap-dot { position: absolute; left: -6px; width: 10px; height: 10px; border-radius: 50%; background: var(--bg); border: 2px solid var(--ink-2); }
+.snap-now .snap-dot { background: var(--blue); border-color: var(--blue); }
+.snap-main { flex: 1; display: grid; gap: 2px; font-size: 13px; min-width: 0; }
+.snap-main b { font-weight: 500; }
+.snap-main .muted { font-size: 12px; }
+.snap-actions { display: flex; gap: 6px; }
+.chip-mini { font-family: var(--mono); font-size: 10px; background: var(--bg-sunken); border-radius: 4px; padding: 1px 5px; margin-left: 6px; }
+
+/* ---------- Nova VM ---------- */
+.os-picks { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 16px; }
+.os-pick { display: grid; gap: 2px; text-align: left; border: 1px solid var(--line-strong); border-radius: 10px; padding: 10px 12px; background: var(--bg); }
+.os-pick b { font-weight: 500; font-size: 13px; }
+.os-pick span { font-size: 11px; color: var(--ink-3); }
+.os-pick.on { border-color: var(--blue); box-shadow: inset 0 0 0 1px var(--blue); }
+.field small a { color: var(--blue); }
+
+/* ---------- CD ---------- */
+.disk.cd { grid-template-columns: minmax(0, 1fr) auto; }
+.disk.cd select { height: 32px; border: 1px solid var(--line-strong); border-radius: 7px; padding: 0 8px; background: var(--bg); min-width: 0; }
+
+/* ---------- Console VNC ---------- */
+.vnc-wrap { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; background: #0e0f11; border-radius: 10px; overflow: hidden; }
+.vnc-bar { display: flex; gap: 6px; padding: 8px; background: #16171a; border-bottom: 1px solid #25272b; }
+.vnc-bar .btn { background: #222428; border-color: #34363b; color: #e6e6e6; }
+.vnc { flex: 1; min-height: 0; }
+
+@media (max-width: 860px) {
+  .os-picks { grid-template-columns: 1fr 1fr; }
+  .snap-form { grid-template-columns: 1fr; }
+  .snap-list li { flex-wrap: wrap; }
+}

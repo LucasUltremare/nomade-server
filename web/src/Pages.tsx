@@ -135,11 +135,13 @@ export function GuestsPage({ type }: { type: GuestType }) {
           <h1>{title}</h1>
           <span className="tag">{rows.length} de {(data ?? []).filter((g) => g.type === type).length}</span>
         </div>
-        {type === "lxc" && (
+        {type === "lxc" ? (
           <div style={{ display: "flex", gap: 8 }}>
             <button className="btn small" onClick={() => navigate("/apps")}>Instalar app</button>
             <button className="btn small primary" onClick={() => ui.setNewLxc(ui.node ?? "")}>Novo LXC</button>
           </div>
+        ) : (
+          <button className="btn small primary" onClick={() => ui.setNewVm(ui.node ?? "")}>Nova VM</button>
         )}
       </div>
       <div className="filters">
@@ -200,7 +202,10 @@ export function NodesPage() {
           <h1>Nós</h1>
           <span className="tag">{data ? `${data.cluster.nodesOnline}/${data.cluster.nodes} online` : "…"}</span>
         </div>
-        <button className="btn small primary" onClick={() => ui.setNewLxc(ui.node ?? "")}>Novo LXC</button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button className="btn small" onClick={() => ui.setNewVm(ui.node ?? "")}>Nova VM</button>
+          <button className="btn small primary" onClick={() => ui.setNewLxc(ui.node ?? "")}>Novo LXC</button>
+        </div>
       </div>
       <div className="node-grid">
         {(data?.nodes ?? []).map((n) => {

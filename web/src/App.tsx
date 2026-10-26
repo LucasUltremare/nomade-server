@@ -11,6 +11,7 @@ import { ConsoleModal, ConsolePage } from "./Console";
 import { BackupDialog, GuestDialog, SearchPalette } from "./Dialogs";
 import { NetworkPage } from "./Network";
 import { NewLxcDialog } from "./NewLxc";
+import { NewVmDialog } from "./NewVm";
 import { StoragePage } from "./Storage";
 import { IconCalendar, IconSidebar } from "./icons";
 import { Login } from "./Login";
@@ -129,6 +130,7 @@ function Shell() {
       <BackupDialog />
       <SearchPalette />
       <NewLxcDialog />
+      <NewVmDialog />
       <ConsoleModal />
     </div>
   );

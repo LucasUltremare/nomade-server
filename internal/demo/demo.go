@@ -136,6 +136,7 @@ type Server struct {
 	confs   map[int]map[string]string
 	jobs    []map[string]string
 	fw      map[string]*fwState
+	snaps   map[int][]snap
 	srv     *httptest.Server
 }
 
@@ -152,6 +153,7 @@ func Start() *Server {
 		list: append([]*guest(nil), guests...)}
 	s.initManage()
 	s.initExtra()
+	s.initVM()
 	for _, g := range s.list {
 		st := g.status
 		if st == "" {
@@ -177,6 +179,7 @@ func Start() *Server {
 	mux.HandleFunc("POST /api2/json/nodes/{node}/{kind}/{vmid}/status/{action}", s.auth(s.guestAction))
 	s.routesManage(mux)
 	s.routesExtra(mux)
+	s.routesVM(mux)
 	s.srv = httptest.NewTLSServer(mux)
 	return s
 }
@@ -435,9 +438,14 @@ func (s *Server) guestRRD(w http.ResponseWriter, r *http.Request) {
 		if !s.isRunning(g) {
 			return map[string]any{"time": t}
 		}
-		return map[string]any{"time": t, "maxcpu": g.cores, "maxmem": g.mem,
-			"cpu": avgOver(t, step, func(t int64) float64 { return guestCPU(g, t) }),
-			"mem": avgOver(t, step, func(t int64) float64 { return float64(guestMem(g, t)) })}
+		cpu := avgOver(t, step, func(t int64) float64 { return guestCPU(g, t) })
+		n := noise(g.vmid+11, t/step)
+		return map[string]any{"time": t, "maxcpu": g.cores, "maxmem": g.mem, "cpu": cpu,
+			"mem":       avgOver(t, step, func(t int64) float64 { return float64(guestMem(g, t)) }),
+			"netin":     cpu * float64(g.cores) * 3e6 * (0.5 + n),
+			"netout":    cpu * float64(g.cores) * 1.2e6 * (0.5 + n),
+			"diskread":  cpu * float64(g.cores) * 2e6 * n,
+			"diskwrite": cpu * float64(g.cores) * 0.8e6 * (1 - n)}
 	}))
 }
 

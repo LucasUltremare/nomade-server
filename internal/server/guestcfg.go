@@ -38,6 +38,8 @@ type guestConfig struct {
 	Disks    []diskView   `json:"disks"`
 	Storages []storageOpt `json:"storages"` // onde dá pra criar/mover discos
 	Pending  []string     `json:"pending"`  // chaves que só valem depois de reiniciar
+	HasCD    bool         `json:"hasCd"`    // VM com drive de CD (ide2)
+	CDROM    string       `json:"cdrom"`    // ISO no CD ("" = vazio)
 }
 
 var (
@@ -152,6 +154,12 @@ func (s *Server) handleGuestConfig(w http.ResponseWriter, r *http.Request, a pve
 		cfg.Cores = num("cores", 1) * num("sockets", 1)
 	}
 	cfg.Memory = num("memory", int(g.MaxMem>>20))
+	if cd := str("ide2"); g.Type == "qemu" && strings.Contains(cd, "media=cdrom") {
+		cfg.HasCD = true
+		if vol, _, _ := strings.Cut(cd, ","); vol != "none" && vol != "cdrom" {
+			cfg.CDROM = vol
+		}
+	}
 	cfg.Swap = num("swap", 0)
 
 	re := lxcDiskRe

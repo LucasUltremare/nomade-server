@@ -135,7 +135,7 @@ export interface AppCatalog {
 
 export interface ConsoleTicket {
   node: string;
-  kind: "node" | "lxc";
+  kind: "node" | "lxc" | "qemu";
   vmid: number;
   port: number;
   ticket: string;
@@ -249,6 +249,8 @@ export interface GuestConfig {
   disks: Disk[];
   storages: { storage: string; type: string; avail: number; total: number }[];
   pending: string[];
+  hasCd: boolean;
+  cdrom: string;
 }
 
 export interface HealthCheck {
@@ -343,6 +345,48 @@ export type FwScope = { scope: "cluster" } | { scope: "node"; node: string } | {
 
 const fwQuery = (s: FwScope) => new URLSearchParams(Object.entries(s).map(([k, v]) => [k, String(v)])).toString();
 
+export interface Snapshot {
+  name: string;
+  description: string;
+  time: number;
+  parent: string;
+  ram: boolean;
+  current: boolean;
+}
+
+export interface GuestRRD {
+  t: number[];
+  cpu: number[];
+  mem: number[];
+  maxmem: number;
+  netin: number[];
+  netout: number[];
+  diskread: number[];
+  diskwrite: number[];
+}
+
+export interface VmOptions {
+  nextid: number;
+  isos: { volid: string; name: string; size: number }[];
+  disks: { storage: string; type: string; avail: number; total: number }[];
+  bridges: { iface: string; cidr: string; comments: string }[];
+}
+
+export interface VmRequest {
+  vmid: number;
+  name: string;
+  os: "linux" | "win11" | "win10" | "other";
+  iso: string;
+  cores: number;
+  memory: number;
+  disk: number;
+  storage: string;
+  bridge: string;
+  vlan: number;
+  start: boolean;
+  onboot: boolean;
+}
+
 export interface UpdateInfo {
   current: string;
   latest: string;
@@ -399,7 +443,7 @@ export const api = {
     request<{ tasks: { node: string; upid?: string; error?: string }[] }>("POST", "/api/backup", { storage, mode }),
 
   task: (upid: string, start: number) => request<TaskState>("GET", `/api/tasks/${encodeURIComponent(upid)}?start=${start}`),
-  console: (node: string, kind: "node" | "lxc", vmid = 0) =>
+  console: (node: string, kind: "node" | "lxc" | "qemu", vmid = 0) =>
     request<ConsoleTicket>("POST", "/api/console", { node, kind, vmid }),
   apps: (refresh = false) => request<AppCatalog>("GET", `/api/apps${refresh ? "?refresh=1" : ""}`),
 
@@ -441,6 +485,25 @@ export const api = {
     request<{ upid: string }>("DELETE", `/api/guests/${g.type}/${g.vmid}/disks/${disk}`),
   migrate: (g: Pick<Guest, "type" | "vmid">, target: string) =>
     request<{ upid: string }>("POST", `/api/guests/${g.type}/${g.vmid}/migrate`, { target }),
+
+  snapshots: (g: Pick<Guest, "type" | "vmid">) => request<Snapshot[]>("GET", `/api/guests/${g.type}/${g.vmid}/snapshots`),
+  snapshotCreate: (g: Pick<Guest, "type" | "vmid">, body: { name: string; description: string; ram: boolean }) =>
+    request<{ upid: string }>("POST", `/api/guests/${g.type}/${g.vmid}/snapshots`, body),
+  snapshotRollback: (g: Pick<Guest, "type" | "vmid">, name: string) =>
+    request<{ upid: string }>("POST", `/api/guests/${g.type}/${g.vmid}/snapshots/${enc(name)}/rollback`),
+  snapshotDelete: (g: Pick<Guest, "type" | "vmid">, name: string) =>
+    request<{ upid: string }>("DELETE", `/api/guests/${g.type}/${g.vmid}/snapshots/${enc(name)}`),
+  guestRRD: (g: Pick<Guest, "type" | "vmid">, range: string) =>
+    request<GuestRRD>("GET", `/api/guests/${g.type}/${g.vmid}/rrd?range=${range}`),
+  vmOptions: (node: string) => request<VmOptions>("GET", `/api/nodes/${enc(node)}/vm-options`),
+  createVm: (node: string, body: VmRequest) => request<{ upid: string; vmid: number }>("POST", `/api/nodes/${enc(node)}/qemu`, body),
+  setCdrom: (g: Pick<Guest, "type" | "vmid">, iso: string) =>
+    request<{ upid: string }>("PUT", `/api/guests/${g.type}/${g.vmid}/cdrom`, { iso }),
+  clone: (g: Pick<Guest, "type" | "vmid">, body: { name: string; full: boolean; target: string; storage: string }) =>
+    request<{ upid: string; vmid: number }>("POST", `/api/guests/${g.type}/${g.vmid}/clone`, body),
+  makeTemplate: (g: Pick<Guest, "type" | "vmid">) => request<{ upid: string }>("POST", `/api/guests/${g.type}/${g.vmid}/template`),
+  destroy: (g: Pick<Guest, "type" | "vmid">, confirm: string) =>
+    request<{ upid: string }>("DELETE", `/api/guests/${g.type}/${g.vmid}`, { confirm }),
 
   health: () => request<HealthReport>("GET", "/api/health"),
   aptRefresh: (node: string) => request<{ upid: string }>("POST", `/api/nodes/${enc(node)}/apt/refresh`),

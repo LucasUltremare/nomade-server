@@ -42,6 +42,7 @@ export function GuestHardware({ g }: { g: Guest }) {
         ))}
       </div>
       <AddDisk g={g} storages={cfg.storages} onDone={after} onError={fail} />
+      {cfg.hasCd && <CdRom g={g} current={cfg.cdrom} onDone={after} onError={fail} />}
 
       {err && <div className="err">{err}</div>}
       {upid && <TaskLog key={upid} upid={upid} onDone={refresh} />}
@@ -126,6 +127,26 @@ function DiskRow({ g, d, storages, running, onDone, onError }: {
         </div>
       )}
     </div>
+  );
+}
+
+function CdRom({ g, current, onDone, onError }: { g: Guest; current: string; onDone: Done; onError: Fail }) {
+  const { data: opts } = useQuery({ queryKey: ["vm-options", g.node], queryFn: () => api.vmOptions(g.node) });
+  const [iso, setIso] = useState(current);
+  useEffect(() => setIso(current), [current]);
+  const save = useMutation({ mutationFn: () => api.setCdrom(g, iso), onSuccess: onDone, onError });
+  return (
+    <>
+      <div className="hw-title">CD / DVD</div>
+      <form className="disk cd" onSubmit={(e) => { e.preventDefault(); save.mutate(); }}>
+        <select value={iso} onChange={(e) => setIso(e.target.value)} aria-label="ISO no CD">
+          <option value="">Vazio</option>
+          {current && !opts?.isos.some((i) => i.volid === current) && <option value={current}>{current}</option>}
+          {opts?.isos.map((i) => <option key={i.volid} value={i.volid}>{i.name}</option>)}
+        </select>
+        <button className="btn small primary" disabled={iso === current || save.isPending}>{iso ? "Colocar" : "Ejetar"}</button>
+      </form>
+    </>
   );
 }
 

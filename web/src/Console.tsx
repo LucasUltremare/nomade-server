@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { kindLabel, health } from "./format";
 import { IconTerminal, IconX } from "./icons";
 import { Terminal, type ConsoleTarget } from "./Terminal";
+import { VncConsole } from "./VncConsole";
 import { useGuests, useStatus, useUI } from "./state";
 
 /** Console em tela cheia, aberto de qualquer lugar (loja, guest, painel do nó). */
@@ -33,10 +34,10 @@ export function ConsoleModal() {
         <div className="console-head">
           <IconTerminal width={16} height={16} />
           <b>{t.title}</b>
-          <span className="mono muted">{t.kind === "node" ? `shell · ${t.node}` : `CT ${t.vmid} · ${t.node}`}</span>
+          <span className="mono muted">{t.kind === "node" ? `shell · ${t.node}` : `${t.kind === "qemu" ? "VM" : "CT"} ${t.vmid} · ${t.node}`}</span>
           <button className="close" onClick={close} aria-label="Fechar console" title="Fechar (⌘⇧X)"><IconX /></button>
         </div>
-        <Terminal target={t} />
+        {t.kind === "qemu" ? <VncConsole target={t} /> : <Terminal target={t} />}
       </div>
     </div>
   );
@@ -81,22 +82,25 @@ export function ConsolePage() {
         {vms.length > 0 && (
           <>
             <div className="side-title">VMs</div>
-            <p className="muted" style={{ fontSize: 12, margin: "0 4px 8px" }}>
-              O console gráfico das VMs abre no Proxmox por enquanto.
-            </p>
-            {vms.map((g) => (
-              <a key={g.id} className="list-btn" target="_blank" rel="noreferrer"
-                href={`https://${location.hostname}:8006/?console=kvm&novnc=1&vmid=${g.vmid}&vmname=${encodeURIComponent(g.name)}&node=${encodeURIComponent(g.node)}&resize=scale`}>
-                <span className={`dot ${health(g)}`} />
-                <span className="name">{g.name}</span>
-                <span className="mono muted">{kindLabel(g)} {g.vmid} ↗</span>
-              </a>
-            ))}
+            {vms.map((g) => {
+              const t: ConsoleTarget = { node: g.node, kind: "qemu", vmid: g.vmid, title: g.name };
+              return (
+                <button key={g.id} className="list-btn" aria-pressed={same(cur, t)} disabled={g.status !== "running"}
+                  onClick={() => setTarget(t)} title={g.status !== "running" ? "Desligada" : undefined}>
+                  <span className={`dot ${health(g)}`} />
+                  <span className="name">{g.name}</span>
+                  <span className="mono muted">{kindLabel(g)} {g.vmid}</span>
+                </button>
+              );
+            })}
           </>
         )}
       </div>
       <div className="console-main">
-        {cur ? <Terminal key={`${cur.node}-${cur.kind}-${cur.vmid ?? 0}`} target={cur} /> : <p className="muted">Nenhum nó online.</p>}
+        {cur ? (cur.kind === "qemu"
+          ? <VncConsole key={`${cur.node}-qemu-${cur.vmid}`} target={cur} />
+          : <Terminal key={`${cur.node}-${cur.kind}-${cur.vmid ?? 0}`} target={cur} />)
+          : <p className="muted">Nenhum nó online.</p>}
       </div>
     </div>
   );

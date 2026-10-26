@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
@@ -592,5 +593,159 @@ func TestStorageContentStringNumbers(t *testing.T) {
 	}
 	if len(vols) == 0 || vols[0].CTime == 0 || vols[0].Size == 0 {
 		t.Fatalf("ctime/size não foram lidos: %+v", vols)
+	}
+}
+
+func TestSnapshots(t *testing.T) {
+	ts, c := loginRoot(t)
+	var snaps []snapshotView
+	call(t, c, "GET", ts.URL+"/api/guests/qemu/102/snapshots", nil, &snaps)
+	if len(snaps) != 3 || !snaps[2].Current || snaps[0].Name != "antes_upgrade" || !snaps[0].RAM {
+		t.Fatalf("snapshots: %+v", snaps)
+	}
+	if code := call(t, c, "POST", ts.URL+"/api/guests/qemu/102/snapshots", map[string]any{"name": "1nome"}, nil); code != 400 {
+		t.Errorf("nome inválido: %d", code)
+	}
+	var up struct {
+		UPID string `json:"upid"`
+	}
+	call(t, c, "POST", ts.URL+"/api/guests/qemu/102/snapshots", map[string]any{"name": "teste_mia", "description": "via teste", "ram": true}, &up)
+	waitTask(t, ts, c, up.UPID)
+	call(t, c, "GET", ts.URL+"/api/guests/qemu/102/snapshots", nil, &snaps)
+	if len(snaps) != 4 || snaps[2].Name != "teste_mia" || snaps[2].Parent != "build_ok" {
+		t.Fatalf("depois de criar: %+v", snaps)
+	}
+	call(t, c, "POST", ts.URL+"/api/guests/qemu/102/snapshots/teste_mia/rollback", nil, &up)
+	if exit := waitTask(t, ts, c, up.UPID); exit != "OK" {
+		t.Errorf("rollback: %q", exit)
+	}
+	call(t, c, "DELETE", ts.URL+"/api/guests/qemu/102/snapshots/build_ok", nil, &up)
+	waitTask(t, ts, c, up.UPID)
+	call(t, c, "GET", ts.URL+"/api/guests/qemu/102/snapshots", nil, &snaps)
+	if len(snaps) != 3 || snaps[1].Parent != "antes_upgrade" {
+		t.Errorf("apagar devia religar o filho: %+v", snaps)
+	}
+}
+
+func TestVMLifecycle(t *testing.T) {
+	ts, c := loginRoot(t)
+	var opts struct {
+		NextID int `json:"nextid"`
+		ISOs   []struct {
+			Volid string `json:"volid"`
+		} `json:"isos"`
+		Disks []struct {
+			Storage string `json:"storage"`
+		} `json:"disks"`
+	}
+	call(t, c, "GET", ts.URL+"/api/nodes/pve-01/vm-options", nil, &opts)
+	if opts.NextID < 100 || len(opts.ISOs) < 2 || len(opts.Disks) == 0 {
+		t.Fatalf("opções: %+v", opts)
+	}
+	f, err := vmRequest{VMID: 200, Name: "win", OS: "win11", Disk: 64, Storage: "tank", Bridge: "vmbr0", Cores: 4, Memory: 8192}.form()
+	if err != nil || f.Get("tpmstate0") == "" || f.Get("bios") != "ovmf" || f.Get("sata0") == "" || f.Get("scsi0") != "" {
+		t.Fatalf("form do windows 11: %v %v", err, f)
+	}
+	var created struct {
+		UPID string `json:"upid"`
+		VMID int    `json:"vmid"`
+	}
+	body := map[string]any{"name": "debian-vm", "os": "linux", "iso": opts.ISOs[0].Volid, "cores": 2, "memory": 2048,
+		"disk": 20, "storage": opts.Disks[0].Storage, "bridge": "vmbr0", "start": false}
+	if code := call(t, c, "POST", ts.URL+"/api/nodes/pve-01/qemu", body, &created); code != 200 {
+		t.Fatalf("criar vm: %d", code)
+	}
+	waitTask(t, ts, c, created.UPID)
+	id := strconv.Itoa(created.VMID)
+
+	if code := call(t, c, "PUT", ts.URL+"/api/guests/qemu/"+id+"/cdrom", map[string]string{"iso": ""}, nil); code != 200 {
+		t.Errorf("ejetar cd: %d", code)
+	}
+	var cl struct {
+		UPID string `json:"upid"`
+		VMID int    `json:"vmid"`
+	}
+	call(t, c, "POST", ts.URL+"/api/guests/qemu/"+id+"/clone", map[string]any{"name": "debian-copia", "full": true}, &cl)
+	waitTask(t, ts, c, cl.UPID)
+	if code := call(t, c, "POST", ts.URL+"/api/guests/qemu/"+id+"/template", nil, nil); code != 200 {
+		t.Errorf("virar template: %d", code)
+	}
+	var guests []guestView
+	call(t, c, "GET", ts.URL+"/api/guests", nil, &guests)
+	if !slices.ContainsFunc(guests, func(g guestView) bool { return g.VMID == created.VMID && g.Template }) ||
+		!slices.ContainsFunc(guests, func(g guestView) bool { return g.VMID == cl.VMID && g.Name == "debian-copia" }) {
+		t.Fatalf("template/clone: %+v", guests)
+	}
+	if code := call(t, c, "DELETE", ts.URL+"/api/guests/qemu/"+strconv.Itoa(cl.VMID), map[string]string{"confirm": "errado"}, nil); code != 400 {
+		t.Errorf("apagar sem confirmar devia dar 400: %d", code)
+	}
+	var del struct {
+		UPID string `json:"upid"`
+	}
+	call(t, c, "DELETE", ts.URL+"/api/guests/qemu/"+strconv.Itoa(cl.VMID), map[string]string{"confirm": "debian-copia"}, &del)
+	waitTask(t, ts, c, del.UPID)
+	call(t, c, "GET", ts.URL+"/api/guests", nil, &guests)
+	if slices.ContainsFunc(guests, func(g guestView) bool { return g.VMID == cl.VMID }) {
+		t.Error("clone devia ter sido apagado")
+	}
+	if code := call(t, c, "DELETE", ts.URL+"/api/guests/qemu/102", map[string]string{"confirm": "vlad"}, nil); code != 409 {
+		t.Errorf("apagar VM ligada devia dar 409: %d", code)
+	}
+}
+
+func TestGuestRRD(t *testing.T) {
+	ts, c := loginRoot(t)
+	var rrd struct {
+		T      []int64   `json:"t"`
+		CPU    []float64 `json:"cpu"`
+		NetIn  []float64 `json:"netin"`
+		MaxMem float64   `json:"maxmem"`
+	}
+	call(t, c, "GET", ts.URL+"/api/guests/lxc/101/rrd?range=1h", nil, &rrd)
+	if len(rrd.T) < 50 || len(rrd.CPU) != len(rrd.T) || len(rrd.NetIn) != len(rrd.T) || rrd.MaxMem == 0 {
+		t.Fatalf("rrd: %d pontos", len(rrd.T))
+	}
+}
+
+// O console de VM passa VNC cru pelo proxy: confere o handshake RFB.
+func TestVNCProxy(t *testing.T) {
+	ts, c := loginRoot(t)
+	var open struct {
+		Port   int    `json:"port"`
+		Ticket string `json:"ticket"`
+	}
+	if code := call(t, c, "POST", ts.URL+"/api/console", map[string]any{"node": "pve-01", "kind": "qemu", "vmid": 102}, &open); code != 200 {
+		t.Fatalf("vncproxy: %d", code)
+	}
+	wsURL := strings.Replace(ts.URL, "https://", "wss://", 1) + "/api/console/ws?" + url.Values{
+		"node": {"pve-01"}, "kind": {"qemu"}, "vmid": {"102"}, "port": {strconv.Itoa(open.Port)}, "vncticket": {open.Ticket},
+	}.Encode()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	ws, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{HTTPClient: c, Subprotocols: []string{"binary"}})
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer ws.CloseNow()
+	conn := websocket.NetConn(ctx, ws, websocket.MessageBinary)
+	ver := make([]byte, 12)
+	if _, err := io.ReadFull(conn, ver); err != nil || string(ver) != "RFB 003.008\n" {
+		t.Fatalf("versão: %q %v", ver, err)
+	}
+	conn.Write(ver)
+	sec := make([]byte, 2)
+	io.ReadFull(conn, sec)
+	conn.Write([]byte{2})
+	io.ReadFull(conn, make([]byte, 16))
+	conn.Write(make([]byte, 16))
+	res := make([]byte, 4)
+	io.ReadFull(conn, res)
+	conn.Write([]byte{1})
+	init := make([]byte, 24)
+	if _, err := io.ReadFull(conn, init); err != nil {
+		t.Fatalf("ServerInit: %v", err)
+	}
+	if w := int(init[0])<<8 | int(init[1]); w != 1024 || res[3] != 0 {
+		t.Errorf("largura %d, resultado %v", w, res)
 	}
 }

@@ -168,12 +168,15 @@ func (s *Server) createGuest(w http.ResponseWriter, r *http.Request) {
 	if m, _ := strconv.Atoi(f.Get("memory")); m > 0 {
 		g.mem = int64(m) << 20
 	}
-	if _, size, ok := strings.Cut(f.Get("rootfs"), ":"); ok {
-		if gb, _ := strconv.Atoi(size); gb > 0 {
-			g.disk = int64(gb) * gib
+	for _, k := range []string{"rootfs", "scsi0", "sata0"} {
+		if _, size, ok := strings.Cut(f.Get(k), ":"); ok {
+			size, _, _ = strings.Cut(size, ",")
+			if gb, _ := strconv.Atoi(size); gb > 0 {
+				g.disk = int64(gb) * gib
+			}
 		}
 	}
-	g.name = f.Get("hostname")
+	g.name = f.Get("hostname") + f.Get("name")
 	var lines []string
 	typ := "vzcreate"
 	switch {
@@ -184,6 +187,15 @@ func (s *Server) createGuest(w http.ResponseWriter, r *http.Request) {
 		}
 		typ = map[string]string{"lxc": "vzrestore", "qemu": "qmrestore"}[kind]
 		lines = []string{"restore " + src, "extracting archive '" + src + "'", "total bytes read 2147483648, sparse bytes 1073741824 (50%)", "Detected container architecture: amd64", "merging backed-up and given configuration.."}
+	case kind == "qemu":
+		typ = "qmcreate"
+		lines = []string{
+			fmt.Sprintf("%s: successfully created disk '%s:vm-%d-disk-0,size=%dG'", f.Get("scsihw"), diskStore(node), vmid, g.disk>>30),
+			"ide2: " + f.Get("ide2"),
+		}
+		if f.Get("efidisk0") != "" {
+			lines = append(lines, fmt.Sprintf("efidisk0: successfully created disk '%s:vm-%d-disk-1,efitype=4m,size=1M'", diskStore(node), vmid))
+		}
 	default:
 		if g.name == "" {
 			g.name = fmt.Sprintf("CT%d", vmid)
