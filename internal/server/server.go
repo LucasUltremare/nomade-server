@@ -45,6 +45,7 @@ type Server struct {
 	ts       *tailscale
 	apps     *appStore
 	updater  *updater
+	meter    rateMeter
 	prober   *prober
 	sched    *scheduler
 }
@@ -175,7 +176,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/firewall", s.authed(s.handleFirewall))
 	mux.HandleFunc("PUT /api/firewall/options", s.authed(s.handleFirewallOptions))
 	mux.HandleFunc("POST /api/firewall/rules", s.authed(s.handleFirewallRuleAdd))
-	mux.HandleFunc("PUT /api/firewall/rules/{pos}", s.authed(s.handleFirewallRuleToggle))
+	mux.HandleFunc("PUT /api/firewall/rules/{pos}", s.authed(s.handleFirewallRuleUpdate))
 	mux.HandleFunc("DELETE /api/firewall/rules/{pos}", s.authed(s.handleFirewallRuleDelete))
 	mux.HandleFunc("GET /api/firewall/macros", s.authed(s.handleFirewallMacros))
 	mux.HandleFunc("POST /api/console", s.authed(s.handleConsoleOpen))
@@ -187,6 +188,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/nodes/{node}/lxc", s.authed(s.handleLXCCreate))
 
 	mux.HandleFunc("GET /api/nodes/{node}/network", s.authed(s.handleNetwork))
+	mux.HandleFunc("GET /api/nodes/{node}/topology", s.authed(s.handleTopology))
+	mux.HandleFunc("PUT /api/nodes/{node}/network/{iface}", s.authed(s.handleNetworkUpdate))
 	mux.HandleFunc("POST /api/nodes/{node}/network", s.authed(s.handleNetworkCreate))
 	mux.HandleFunc("DELETE /api/nodes/{node}/network/{iface}", s.authed(s.handleNetworkDelete))
 	mux.HandleFunc("POST /api/nodes/{node}/network/{op}", s.authed(s.handleNetworkApply))

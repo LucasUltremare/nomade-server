@@ -105,7 +105,8 @@ func newRest() *rest {
 		{"pos": 1, "type": "in", "action": "ACCEPT", "macro": "HTTP", "enable": 1},
 	}
 	r.colls["/cluster/firewall/aliases"] = []map[string]any{{"name": "lan", "cidr": "10.0.10.0/24", "comment": "Rede de casa"}}
-	r.colls["/cluster/firewall/ipset"] = []map[string]any{{"name": "management", "comment": "Quem pode acessar o painel"}}
+	r.colls["/cluster/firewall/ipset"] = []map[string]any{{"name": "management", "comment": "Quem pode acessar o painel"}, {"name": "iot", "comment": "Câmeras e lâmpadas"}}
+	r.colls["/cluster/firewall/ipset/iot"] = []map[string]any{{"cidr": "10.0.20.0/24"}}
 	r.colls["/cluster/firewall/ipset/management"] = []map[string]any{{"cidr": "10.0.10.0/24"}, {"cidr": "100.64.0.0/10", "comment": "Tailscale"}}
 	r.colls["/cluster/metrics/server"] = []map[string]any{}
 	r.colls["/cluster/sdn/zones"] = []map[string]any{}

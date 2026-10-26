@@ -1043,3 +1043,124 @@ func TestSharedFolders(t *testing.T) {
 		}
 	}
 }
+
+func TestRateMeter(t *testing.T) {
+	var m rateMeter
+	t0 := time.Unix(1000, 0)
+	if _, _, ok := m.rate("x", 100, 50, t0, 0); ok {
+		t.Error("primeira leitura não tem taxa")
+	}
+	in, out, ok := m.rate("x", 1100, 250, t0.Add(10*time.Second), 0)
+	if !ok || in != 100 || out != 20 {
+		t.Errorf("taxa: %v %v %v", in, out, ok)
+	}
+	// Contador parado dentro do hold repete a última taxa (PVE atualiza a cada ~10s).
+	if in, _, _ := m.rate("x", 1100, 250, t0.Add(15*time.Second), 25*time.Second); in != 100 {
+		t.Errorf("hold: %v", in)
+	}
+	// Contador que zerou (guest reiniciou) não vira taxa negativa.
+	if _, _, ok := m.rate("x", 10, 10, t0.Add(60*time.Second), 0); ok {
+		t.Error("contador zerado devia dar ok=false")
+	}
+}
+
+func TestTopologyAndLinks(t *testing.T) {
+	ts, c := loginRoot(t)
+	var net struct {
+		Ifaces []ifaceView `json:"ifaces"`
+		Live   bool        `json:"live"`
+	}
+	call(t, c, "GET", ts.URL+"/api/nodes/pve-01/network", nil, &net)
+	link := func(name string) *linkInfo {
+		for _, i := range net.Ifaces {
+			if i.Iface == name {
+				return i.Link
+			}
+		}
+		return nil
+	}
+	if !net.Live || link("enp8s0") == nil || link("enp8s0").Speed != 10000 || link("enp7s0") == nil || link("enp7s0").Up {
+		t.Fatalf("links: live=%v enp8s0=%+v enp7s0=%+v", net.Live, link("enp8s0"), link("enp7s0"))
+	}
+
+	var topo struct {
+		Guests []topoGuest `json:"guests"`
+	}
+	call(t, c, "GET", ts.URL+"/api/nodes/pve-01/topology", nil, &topo)
+	byID := map[int]topoGuest{}
+	for _, g := range topo.Guests {
+		byID[g.VMID] = g
+	}
+	if _, ok := byID[9000]; ok {
+		t.Error("template não entra na topologia")
+	}
+	if g := byID[101]; len(g.NICs) != 2 || g.NICs[1].Bridge != "vmbr2" || g.NICs[1].IP != "10.0.50.101" {
+		t.Errorf("jellyfin: %+v", g.NICs)
+	}
+	if g := byID[114]; len(g.NICs) != 2 || g.NICs[1].Tag != "20" {
+		t.Errorf("traefik: %+v", g.NICs)
+	}
+	if g := byID[102]; len(g.NICs) != 1 || g.NICs[0].MAC == "" || !g.NICs[0].Firewall {
+		t.Errorf("vm: %+v", g.NICs)
+	}
+}
+
+func TestNetworkBondAndEdit(t *testing.T) {
+	ts, c := loginRoot(t)
+	if code := call(t, c, "POST", ts.URL+"/api/nodes/pve-01/network", map[string]any{"type": "bond", "iface": "bond0", "ports": "enp7s0", "bondMode": "lacp"}, nil); code != 400 {
+		t.Errorf("modo inválido devia dar 400: %d", code)
+	}
+	if code := call(t, c, "POST", ts.URL+"/api/nodes/pve-01/network", map[string]any{"type": "bridge", "iface": "vmbr8", "ports": "enp7s0;reboot"}, nil); code != 400 {
+		t.Errorf("porta com lixo devia dar 400: %d", code)
+	}
+	if code := call(t, c, "POST", ts.URL+"/api/nodes/pve-01/network", map[string]any{"type": "bond", "iface": "bond0", "ports": "enp7s0", "bondMode": "active-backup"}, nil); code != 200 {
+		t.Fatalf("bond: %d", code)
+	}
+	call(t, c, "PUT", ts.URL+"/api/nodes/pve-01/network/vmbr2", map[string]any{"type": "bridge", "ports": "enp8s0", "cidr": "10.0.50.11/24", "comments": ""}, nil)
+	var net struct {
+		Ifaces  []ifaceView `json:"ifaces"`
+		Changes string      `json:"changes"`
+	}
+	call(t, c, "GET", ts.URL+"/api/nodes/pve-01/network", nil, &net)
+	var bond, br *ifaceView
+	for i := range net.Ifaces {
+		switch net.Ifaces[i].Iface {
+		case "bond0":
+			bond = &net.Ifaces[i]
+		case "vmbr2":
+			br = &net.Ifaces[i]
+		}
+	}
+	if bond == nil || bond.Ports != "enp7s0" || bond.BondMode != "active-backup" {
+		t.Errorf("bond: %+v", bond)
+	}
+	if br == nil || br.Comments != "" || !strings.Contains(net.Changes, "vmbr2") {
+		t.Errorf("edição do vmbr2: %+v changes=%q", br, net.Changes)
+	}
+	call(t, c, "POST", ts.URL+"/api/nodes/pve-01/network/revert", nil, nil)
+}
+
+func TestFirewallEditAndMove(t *testing.T) {
+	ts, c := loginRoot(t)
+	var fw struct {
+		Rules []fwRule `json:"rules"`
+	}
+	const q = "?scope=node&node=pve-02"
+	for _, cm := range []string{"a", "b", "c"} {
+		call(t, c, "POST", ts.URL+"/api/firewall/rules"+q, fwRule{Type: "in", Action: "ACCEPT", Proto: "tcp", Dport: "80", Comment: cm, Enable: true}, nil)
+	}
+	// Regra nova entra no topo: c, b, a. Move "c" pra depois de "a".
+	call(t, c, "PUT", ts.URL+"/api/firewall/rules/0"+q, map[string]int{"moveto": 3}, nil)
+	call(t, c, "GET", ts.URL+"/api/firewall"+q, nil, &fw)
+	if got := []string{fw.Rules[0].Comment, fw.Rules[1].Comment, fw.Rules[2].Comment}; !slices.Equal(got, []string{"b", "a", "c"}) {
+		t.Fatalf("ordem depois de mover: %v", got)
+	}
+	if code := call(t, c, "PUT", ts.URL+"/api/firewall/rules/0"+q, map[string]any{"rule": fwRule{Type: "in", Action: "DROP", Log: "tudo"}}, nil); code != 400 {
+		t.Errorf("log inválido devia dar 400: %d", code)
+	}
+	call(t, c, "PUT", ts.URL+"/api/firewall/rules/0"+q, map[string]any{"rule": fwRule{Type: "in", Action: "DROP", Macro: "SSH", Source: "+iot", Log: "info", Comment: "b2", Enable: true}}, nil)
+	call(t, c, "GET", ts.URL+"/api/firewall"+q, nil, &fw)
+	if r := fw.Rules[0]; r.Action != "DROP" || r.Macro != "SSH" || r.Dport != "" || r.Proto != "" || r.Log != "info" || r.Comment != "b2" {
+		t.Errorf("regra editada: %+v", r)
+	}
+}

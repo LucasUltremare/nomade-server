@@ -193,8 +193,44 @@ export interface NetIface {
   vlanAware: boolean;
   vlanId: string;
   vlanRaw: string;
+  bondMode: string;
   comments: string;
   pending: boolean;
+  /** Só no nó onde a Mia roda (lido do /sys). */
+  link?: LinkInfo;
+}
+
+export interface LinkInfo {
+  up: boolean;
+  /** Mb/s; 0 = desconhecida. */
+  speed: number;
+  duplex?: string;
+  mac?: string;
+  /** bytes/s; null até a segunda leitura. */
+  rx: number | null;
+  tx: number | null;
+}
+
+export interface TopoNic {
+  key: string;
+  bridge: string;
+  tag?: string;
+  mac?: string;
+  ip?: string;
+  firewall: boolean;
+  down: boolean;
+}
+
+export interface TopoGuest {
+  id: string;
+  vmid: number;
+  type: GuestType;
+  name: string;
+  status: string;
+  ip: string;
+  nics: TopoNic[];
+  rx: number | null;
+  tx: number | null;
 }
 
 export interface StorageRow {
@@ -389,6 +425,7 @@ export interface FwRule {
   source: string;
   dest: string;
   iface: string;
+  log: string;
   comment: string;
   enable: boolean;
 }
@@ -514,7 +551,10 @@ export const api = {
     request<{ upid: string; vmid: number }>("POST", `/api/nodes/${enc(node)}/lxc`, body),
 
   network: (node: string) =>
-    request<{ ifaces: NetIface[]; changes: string; traffic: { in?: number; out?: number } }>("GET", `/api/nodes/${enc(node)}/network`),
+    request<{ ifaces: NetIface[]; changes: string; traffic: { in?: number; out?: number }; live: boolean }>("GET", `/api/nodes/${enc(node)}/network`),
+  networkUpdate: (node: string, iface: string, body: Record<string, unknown>) =>
+    request<{ ok: boolean }>("PUT", `/api/nodes/${enc(node)}/network/${enc(iface)}`, body),
+  topology: (node: string) => request<{ guests: TopoGuest[] }>("GET", `/api/nodes/${enc(node)}/topology`),
   networkCreate: (node: string, body: Record<string, unknown>) =>
     request<{ ok: boolean }>("POST", `/api/nodes/${enc(node)}/network`, body),
   networkDelete: (node: string, iface: string) =>
@@ -613,6 +653,11 @@ export const api = {
   firewallAdd: (s: FwScope, rule: Partial<FwRule>) => request<{ ok: boolean }>("POST", `/api/firewall/rules?${fwQuery(s)}`, rule),
   firewallToggle: (s: FwScope, pos: number, enable: boolean) =>
     request<{ ok: boolean }>("PUT", `/api/firewall/rules/${pos}?${fwQuery(s)}`, { enable }),
+  firewallEdit: (s: FwScope, pos: number, rule: Partial<FwRule>) =>
+    request<{ ok: boolean }>("PUT", `/api/firewall/rules/${pos}?${fwQuery(s)}`, { rule }),
+  /** Como o PVE: a regra vai pra antes da que está em "moveto". */
+  firewallMove: (s: FwScope, pos: number, moveto: number) =>
+    request<{ ok: boolean }>("PUT", `/api/firewall/rules/${pos}?${fwQuery(s)}`, { moveto }),
   firewallDelete: (s: FwScope, pos: number) => request<{ ok: boolean }>("DELETE", `/api/firewall/rules/${pos}?${fwQuery(s)}`),
   firewallMacros: () => request<{ macro: string; descr: string }[]>("GET", "/api/firewall/macros"),
 

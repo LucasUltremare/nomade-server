@@ -347,10 +347,21 @@ func (s *Server) resources(w http.ResponseWriter, r *http.Request) {
 			row["cpu"] = guestCPU(g, now)
 			row["mem"] = guestMem(g, now)
 			row["uptime"] = 3600*24*5 + g.vmid*1000
+			row["netin"], row["netout"] = guestNetBytes(g, now)
 		}
 		rows = append(rows, row)
 	}
 	reply(w, rows)
+}
+
+// guestNetBytes: contadores cumulativos que crescem numa taxa que oscila
+// devagar (a derivada do seno), pra a topologia ter tráfego ao vivo.
+func guestNetBytes(g *guest, now int64) (int64, int64) {
+	base := float64(g.cores) * 6e4 * float64(1+g.vmid%5)
+	t := float64(now)
+	in := base*t + base*40*math.Sin(t/40+float64(g.vmid))
+	out := base*0.4*t + base*0.4*50*math.Sin(t/50+float64(g.vmid)*2)
+	return int64(in), int64(out)
 }
 
 func findNode(name string) *node {

@@ -25,7 +25,7 @@ Goal: everything the Proxmox VE web UI does, plus Mia-only extras on top.
 | HA (status, resources, groups, rules) | ✅ | |
 | SDN (zones, VNets, subnets, apply) | 🟡 | Fabrics and IPAM management missing |
 | ACME (accounts, DNS plugins) | ✅ | |
-| Firewall: options, rules | ✅ | With Mia lockout warning |
+| Firewall: options, rules | ✅ | With Mia lockout warning; edit and reorder |
 | Firewall: security groups, aliases, IPSets, log | ✅ | |
 | Metric servers (InfluxDB, Graphite) | ✅ | |
 | Resource mappings (PCI, USB, directories) | ✅ | |
@@ -42,7 +42,7 @@ Goal: everything the Proxmox VE web UI does, plus Mia-only extras on top.
 | Summary, charts | ✅ | CPU, memory, load, network |
 | Notes | ✅ | |
 | Shell | ✅ | xterm.js |
-| Network | ✅ | Bridges, VLANs, pending diff, apply/revert; bonds and editing existing interfaces missing |
+| Network | ✅ | Bridges, VLANs, bonds, edit, pending diff, apply/revert |
 | Certificates | ✅ | Custom upload, ACME order and renew |
 | DNS, hosts, time zone | ✅ | |
 | Syslog | ✅ | journal + firewall log |
@@ -114,6 +114,8 @@ Goal: everything the Proxmox VE web UI does, plus Mia-only extras on top.
 | Health checks + notifications bell | ✅ |
 | Firewall lockout guard | ✅ |
 | New-version notice (update stays in the Proxmox shell) | ✅ |
+| Several consoles at once (tabs, side by side) | ✅ |
+| Network like a firewall appliance: ports panel, live traffic, topology map, policy table | ✅ |
 | "My apps" homepage (icons, status, local + Tailscale links) | ✅ |
 | Shared folders between LXCs (bind mounts with unprivileged ID mapping) | ✅ |
 | Easy GPU passthrough (iGPU to Jellyfin/Plex in one click) | ✅ |

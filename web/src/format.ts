@@ -19,6 +19,18 @@ export function bytes(v: number) {
   return `${nf1.format(v)} ${units[i]}`;
 }
 
+/** Taxa de rede em bits/s (como switch e firewall mostram), a partir de bytes/s. */
+export function bps(bytesPerSec: number) {
+  const b = bytesPerSec * 8;
+  if (b < 1e3) return `${Math.round(b)} b/s`;
+  if (b < 1e6) return `${nf1.format(b / 1e3)} kb/s`;
+  if (b < 1e9) return `${nf1.format(b / 1e6)} Mb/s`;
+  return `${nf1.format(b / 1e9)} Gb/s`;
+}
+
+/** Velocidade do link em Mb/s → "1G", "2,5G", "100M". */
+export const linkSpeed = (mbps: number) => (mbps >= 1000 ? `${nf1.format(mbps / 1000)}G` : mbps > 0 ? `${mbps}M` : "");
+
 /** "3,8 / 8 GB": usado e total na unidade do total. */
 export function bytesPair(used: number, total: number) {
   let i = 0;

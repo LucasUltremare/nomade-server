@@ -74,8 +74,16 @@ func (s *Server) initExtra() {
 	}
 	s.fw = map[string]*fwState{
 		"cluster": {opts: map[string]string{"enable": "0", "policy_in": "DROP", "policy_out": "ACCEPT"}, rules: []map[string]string{
-			{"type": "in", "action": "ACCEPT", "macro": "SSH", "source": "10.0.10.0/24", "enable": "1", "comment": "SSH da LAN"},
-			{"type": "in", "action": "ACCEPT", "proto": "tcp", "dport": "8006", "source": "10.0.10.0/24", "enable": "1", "comment": "Painel do Proxmox"},
+			{"type": "in", "action": "ACCEPT", "macro": "SSH", "source": "lan", "enable": "1", "comment": "SSH da LAN"},
+			{"type": "in", "action": "ACCEPT", "proto": "tcp", "dport": "8006", "source": "+management", "enable": "1", "comment": "Painel do Proxmox", "log": "info"},
+		}},
+		"node/pve-01": {opts: map[string]string{"enable": "1", "policy_in": "DROP", "policy_out": "ACCEPT"}, rules: []map[string]string{
+			{"type": "in", "action": "ACCEPT", "macro": "Ping", "enable": "1", "comment": "Ping"},
+			{"type": "in", "action": "DROP", "iface": "vmbr1", "source": "+iot", "enable": "1", "comment": "IoT não fala com o host", "log": "warning"},
+			{"type": "in", "action": "ACCEPT", "proto": "tcp", "dport": "9100", "source": "10.0.10.11", "enable": "1", "comment": "node_exporter pro Grafana"},
+			{"type": "in", "action": "REJECT", "proto": "udp", "dport": "5353", "enable": "0", "comment": "mDNS"},
+			{"type": "out", "action": "ACCEPT", "macro": "DNS", "dest": "10.0.10.6", "enable": "1", "comment": "DNS pelo AdGuard"},
+			{"type": "out", "action": "DROP", "dest": "+iot", "proto": "tcp", "dport": "22", "enable": "1", "comment": "Sem SSH pros IoT"},
 		}},
 		"guest/101": {opts: map[string]string{"enable": "1", "policy_in": "DROP", "policy_out": "ACCEPT"}, rules: []map[string]string{
 			{"type": "in", "action": "ACCEPT", "proto": "tcp", "dport": "8096", "enable": "1", "comment": "Jellyfin web"},
@@ -118,6 +126,10 @@ func (s *Server) conf(g *guest) map[string]string {
 		}
 		if g.vmid == 114 {
 			c["mp0"] = "/tank/media,mp=/media,ro=1"
+			c["net1"] = "name=eth1,bridge=vmbr1,hwaddr=BC:24:11:00:00:72,ip=10.0.20.14/24,tag=20,type=veth"
+		}
+		if g.vmid == 101 {
+			c["net1"] = "name=eth1,bridge=vmbr2,hwaddr=BC:24:11:00:00:65,ip=10.0.50.101/24,type=veth"
 		}
 	} else {
 		c["name"] = g.name
@@ -128,6 +140,9 @@ func (s *Server) conf(g *guest) map[string]string {
 		c["ostype"], c["cpu"], c["boot"], c["scsihw"] = "l26", "host", "order=scsi0;ide2;net0", "virtio-scsi-single"
 		if g.vmid == 102 || g.vmid == 107 {
 			c["agent"] = "1"
+		}
+		if g.vmid == 110 {
+			c["net0"] = fmt.Sprintf("e1000e=BC:24:11:AA:%02X:%02X,bridge=vmbr1,firewall=1", g.vmid/256, g.vmid%256)
 		}
 		if g.vmid == 107 {
 			c["usb0"] = "host=1a86:55d4"
@@ -623,8 +638,25 @@ func (s *Server) fwRulePut(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "no rule at position "+r.PathValue("pos"))
 		return
 	}
+	if to := r.PostForm.Get("moveto"); to != "" {
+		// Como o PVE: a regra vai pra antes da que está em "moveto".
+		dst, _ := strconv.Atoi(to)
+		rule := st.rules[pos]
+		st.rules = slices.Delete(st.rules, pos, pos+1)
+		if dst > pos {
+			dst--
+		}
+		st.rules = slices.Insert(st.rules, min(max(dst, 0), len(st.rules)), rule)
+		reply(w, nil)
+		return
+	}
+	for _, k := range strings.Split(r.PostForm.Get("delete"), ",") {
+		delete(st.rules[pos], k)
+	}
 	for k, v := range r.PostForm {
-		st.rules[pos][k] = v[0]
+		if k != "delete" && k != "digest" {
+			st.rules[pos][k] = v[0]
+		}
 	}
 	reply(w, nil)
 }

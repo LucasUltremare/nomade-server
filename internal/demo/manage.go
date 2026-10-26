@@ -40,6 +40,7 @@ func (s *Server) routesManage(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api2/json/nodes/{node}/network", s.auth(s.netApply))
 	mux.HandleFunc("DELETE /api2/json/nodes/{node}/network", s.auth(s.netRevert))
 	mux.HandleFunc("DELETE /api2/json/nodes/{node}/network/{iface}", s.auth(s.netDelete))
+	mux.HandleFunc("PUT /api2/json/nodes/{node}/network/{iface}", s.auth(s.netUpdate))
 
 	mux.HandleFunc("GET /api2/json/nodes/{node}/storage/{storage}/content", s.auth(s.content))
 	mux.HandleFunc("DELETE /api2/json/nodes/{node}/storage/{storage}/content/{volid}", s.auth(s.contentDelete))
@@ -428,9 +429,9 @@ func (s *Server) downloadURL(w http.ResponseWriter, r *http.Request) {
 // ---------- rede ----------
 
 type iface struct {
-	Iface, Type, Method, CIDR, Gateway, Ports, Comments, VLANRaw string
-	VLANID                                                       int
-	VLANAware, Active                                            bool
+	Iface, Type, Method, CIDR, Gateway, Ports, Comments, VLANRaw, BondMode string
+	VLANID                                                                 int
+	VLANAware, Active                                                      bool
 }
 
 type netState struct {
@@ -445,18 +446,28 @@ func initNet(n *node) *netState {
 		{Iface: "vmbr0", Type: "bridge", Method: "static", CIDR: n.ip + "/24", Gateway: "10.0.10.1", Ports: "enp5s0", Active: true},
 	}}
 	if n.name == "pve-01" {
+		// O nó "grande": porta IoT com VLAN, uma desplugada e 10G pro storage.
 		ns.cur = append(ns.cur,
 			iface{Iface: "enp6s0", Type: "eth", Method: "manual", Active: true},
+			iface{Iface: "enp7s0", Type: "eth", Method: "manual"},
+			iface{Iface: "enp8s0", Type: "eth", Method: "manual", Active: true, Comments: "SFP+ 10G"},
 			iface{Iface: "vmbr1", Type: "bridge", Method: "manual", Ports: "enp6s0", VLANAware: true, Comments: "LAN IoT", Active: true},
 			iface{Iface: "vmbr1.20", Type: "vlan", Method: "static", CIDR: "10.0.20." + last + "/24", VLANRaw: "vmbr1", VLANID: 20, Active: true, Comments: "câmeras"},
+			iface{Iface: "vmbr2", Type: "bridge", Method: "static", CIDR: "10.0.50." + last + "/24", Ports: "enp8s0", Comments: "storage (NAS)", Active: true},
 		)
+	} else {
+		ns.cur = append(ns.cur, iface{Iface: "enp6s0", Type: "eth", Method: "manual"})
 	}
 	return ns
 }
 
 func (i iface) row() map[string]any {
 	row := map[string]any{"iface": i.Iface, "type": i.Type, "method": i.Method, "active": b2i(i.Active), "autostart": 1, "families": []string{"inet"}}
-	for k, v := range map[string]string{"cidr": i.CIDR, "gateway": i.Gateway, "bridge_ports": i.Ports, "comments": i.Comments, "vlan-raw-device": i.VLANRaw} {
+	ports := "bridge_ports"
+	if i.Type == "bond" {
+		ports = "slaves"
+	}
+	for k, v := range map[string]string{"cidr": i.CIDR, "gateway": i.Gateway, ports: i.Ports, "comments": i.Comments, "vlan-raw-device": i.VLANRaw, "bond_mode": i.BondMode} {
 		if v != "" {
 			row[k] = v
 		}
@@ -475,8 +486,19 @@ func (i iface) stanza() string {
 	if i.CIDR != "" {
 		s += "\n\taddress " + i.CIDR
 	}
-	if i.Ports != "" {
+	if i.Gateway != "" {
+		s += "\n\tgateway " + i.Gateway
+	}
+	if i.Ports != "" && i.Type == "bond" {
+		s += "\n\tbond-slaves " + i.Ports + "\n\tbond-mode " + i.BondMode
+	} else if i.Ports != "" {
 		s += "\n\tbridge-ports " + i.Ports
+	}
+	if i.VLANAware {
+		s += "\n\tbridge-vlan-aware yes"
+	}
+	if i.Comments != "" {
+		s += "\n#" + i.Comments
 	}
 	return s
 }
@@ -496,8 +518,12 @@ func (s *Server) netList(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			for _, c := range ns.cur {
-				if !slices.ContainsFunc(ns.pending, func(p iface) bool { return p.Iface == c.Iface }) {
+				j := slices.IndexFunc(ns.pending, func(p iface) bool { return p.Iface == c.Iface })
+				if j < 0 || ns.pending[j] != c {
 					changes += "-" + strings.ReplaceAll(c.stanza(), "\n", "\n-") + "\n"
+				}
+				if j >= 0 && ns.pending[j] != c {
+					changes += "+" + strings.ReplaceAll(ns.pending[j].stanza(), "\n", "\n+") + "\n"
 				}
 			}
 		}
@@ -523,7 +549,8 @@ func (s *Server) netCreate(w http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
 	f := r.PostForm
 	i := iface{Iface: f.Get("iface"), Type: f.Get("type"), Method: "manual", CIDR: f.Get("cidr"), Gateway: f.Get("gateway"),
-		Ports: f.Get("bridge_ports"), Comments: f.Get("comments"), VLANAware: f.Get("bridge_vlan_aware") == "1"}
+		Ports: f.Get("bridge_ports") + f.Get("slaves"), Comments: f.Get("comments"), VLANAware: f.Get("bridge_vlan_aware") == "1",
+		BondMode: f.Get("bond_mode")}
 	if i.CIDR != "" {
 		i.Method = "static"
 	}
@@ -543,6 +570,54 @@ func (s *Server) netCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ns.pending = append(ns.pending, i)
+	reply(w, nil)
+}
+
+func (s *Server) netUpdate(w http.ResponseWriter, r *http.Request) {
+	r.ParseForm()
+	f := r.PostForm
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ns := s.nets[r.PathValue("node")]
+	if ns.pending == nil {
+		ns.pending = slices.Clone(ns.cur)
+	}
+	i := slices.IndexFunc(ns.pending, func(x iface) bool { return x.Iface == r.PathValue("iface") })
+	if i < 0 {
+		fail(w, 400, "interface '"+r.PathValue("iface")+"' does not exist")
+		return
+	}
+	x := &ns.pending[i]
+	set := func(k string, dst *string) {
+		if f.Has(k) {
+			*dst = f.Get(k)
+		}
+	}
+	set("cidr", &x.CIDR)
+	set("gateway", &x.Gateway)
+	set("comments", &x.Comments)
+	set("bridge_ports", &x.Ports)
+	set("slaves", &x.Ports)
+	set("bond_mode", &x.BondMode)
+	x.VLANAware = x.VLANAware || f.Get("bridge_vlan_aware") == "1"
+	for _, k := range strings.Split(f.Get("delete"), ",") {
+		switch k {
+		case "cidr":
+			x.CIDR = ""
+		case "gateway":
+			x.Gateway = ""
+		case "comments":
+			x.Comments = ""
+		case "bridge_ports":
+			x.Ports = ""
+		case "bridge_vlan_aware":
+			x.VLANAware = false
+		}
+	}
+	x.Method = "manual"
+	if x.CIDR != "" {
+		x.Method = "static"
+	}
 	reply(w, nil)
 }
 

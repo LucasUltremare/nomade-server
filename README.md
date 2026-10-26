@@ -44,7 +44,12 @@ Everything the Proxmox web UI does (see [docs/ROADMAP.md](docs/ROADMAP.md) for t
 - **Datacenter**: options and notes, cluster create/join, storages (dir, NFS, SMB, PBS, ZFS, LVM, BTRFS, ESXi), users, groups, API tokens, two-factor (TOTP and recovery keys), roles, permissions, realms, pools, HA, replication, SDN, firewall groups / aliases / IPSets, notifications, ACME, device mappings, metric servers, Ceph (install, init, monitors, managers, OSDs, pools, CephFS), cluster log.
 - **Scheduled jobs**: turn guests on and off on a schedule, take **automatic snapshots** with retention, and run an **automatic restore test** that restores the latest backup into a throwaway guest, boots it, checks it and deletes it.
 - **Health**: one list of what needs attention (SMART and SSD wear, degraded ZFS, stopped services, pending updates, expiring certificates, storage filling up, nodes offline, guests with no backup), plus a notifications bell.
-- **Backups, firewall, tasks, network** (bridges, VLANs, pending diff with apply/revert), with a guard that warns before the datacenter firewall locks you out of Mia.
+- **Network**, laid out like a firewall appliance's UI:
+  - **Ports panel**: the node's front panel with every physical port, link state, speed and a blinking activity LED. Speed and live traffic only show on the node Mia runs on, since they come from `/sys/class/net`.
+  - **Interfaces**: grouped by type, with live traffic, a reference count, and create or edit for bridges, VLANs and bonds. Changes show as a pending diff with apply/revert.
+  - **Topology map**: router → ports → bridges → guests, with VLAN tags, firewall flags and animated traffic.
+  - **Policies**: firewall rules as a policy table, with address and service chips, the default policy at the end, search, edit and reorder.
+- **Backups, firewall, tasks**, with a guard that warns before the datacenter firewall locks you out of Mia.
 - **VPN · Tailscale**: a one-click gateway LXC that routes your LAN, and per-app HTTPS addresses at `https://<name>.<tailnet>.ts.net`.
 - **Search** (`/` or `⌘K`), cluster backup (`⌘B`), light and dark themes, mobile layout, and a notice when a new version is out (you update from the Proxmox shell).
 

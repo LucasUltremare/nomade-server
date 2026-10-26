@@ -55,6 +55,7 @@ type fwRule struct {
 	Source  string `json:"source"`
 	Dest    string `json:"dest"`
 	Iface   string `json:"iface"`
+	Log     string `json:"log"`
 	Comment string `json:"comment"`
 	Enable  bool   `json:"enable"`
 }
@@ -81,6 +82,7 @@ func (s *Server) handleFirewall(w http.ResponseWriter, r *http.Request, a pve.Au
 		Source  string   `json:"source"`
 		Dest    string   `json:"dest"`
 		Iface   string   `json:"iface"`
+		Log     string   `json:"log"`
 		Comment string   `json:"comment"`
 		Enable  pve.Bool `json:"enable"`
 	}
@@ -91,7 +93,7 @@ func (s *Server) handleFirewall(w http.ResponseWriter, r *http.Request, a pve.Au
 	rules := []fwRule{}
 	for _, x := range raw {
 		rules = append(rules, fwRule{Pos: x.Pos, Type: x.Type, Action: x.Action, Macro: x.Macro, Proto: x.Proto,
-			Dport: x.Dport, Sport: x.Sport, Source: x.Source, Dest: x.Dest, Iface: x.Iface, Comment: x.Comment, Enable: bool(x.Enable)})
+			Dport: x.Dport, Sport: x.Sport, Source: x.Source, Dest: x.Dest, Iface: x.Iface, Log: x.Log, Comment: x.Comment, Enable: bool(x.Enable)})
 	}
 	slices.SortFunc(rules, func(x, y fwRule) int { return x.Pos - y.Pos })
 
@@ -193,6 +195,44 @@ var (
 	fwWordRe  = regexp.MustCompile(`^[A-Za-z0-9_\-]{0,64}$`)
 )
 
+var fwLogLevels = []string{"", "nolog", "emerg", "alert", "crit", "err", "warning", "notice", "info", "debug"}
+
+// form valida a regra e monta os campos pro PVE; del lista os vazios (pra
+// apagar na edição).
+func (x fwRule) form() (url.Values, []string, error) {
+	if x.Type != "in" && x.Type != "out" {
+		return nil, nil, fmt.Errorf("direção inválida")
+	}
+	if !slices.Contains([]string{"ACCEPT", "DROP", "REJECT"}, x.Action) {
+		return nil, nil, fmt.Errorf("ação inválida")
+	}
+	if !slices.Contains(fwLogLevels, x.Log) {
+		return nil, nil, fmt.Errorf("nível de log inválido")
+	}
+	for _, v := range []string{x.Dport, x.Sport, x.Source, x.Dest} {
+		if !fwFieldRe.MatchString(v) {
+			return nil, nil, fmt.Errorf("valor inválido: %s", v)
+		}
+	}
+	for _, v := range []string{x.Macro, x.Proto, x.Iface} {
+		if !fwWordRe.MatchString(v) {
+			return nil, nil, fmt.Errorf("valor inválido: %s", v)
+		}
+	}
+	f := url.Values{"type": {x.Type}, "action": {x.Action}, "enable": {b01(x.Enable)}}
+	var del []string
+	for k, v := range map[string]string{"macro": x.Macro, "proto": x.Proto, "dport": x.Dport, "sport": x.Sport,
+		"source": x.Source, "dest": x.Dest, "iface": x.Iface, "log": x.Log, "comment": x.Comment} {
+		if v != "" {
+			f.Set(k, v)
+		} else {
+			del = append(del, k)
+		}
+	}
+	slices.Sort(del)
+	return f, del, nil
+}
+
 func (s *Server) handleFirewallRuleAdd(w http.ResponseWriter, r *http.Request, a pve.Auth) {
 	base, err := s.fwBase(r, a)
 	if err != nil {
@@ -204,32 +244,10 @@ func (s *Server) handleFirewallRuleAdd(w http.ResponseWriter, r *http.Request, a
 		writeErr(w, http.StatusBadRequest, "json inválido")
 		return
 	}
-	if x.Type != "in" && x.Type != "out" {
-		writeErr(w, http.StatusBadRequest, "direção inválida")
+	f, _, err := x.form()
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
 		return
-	}
-	if !slices.Contains([]string{"ACCEPT", "DROP", "REJECT"}, x.Action) {
-		writeErr(w, http.StatusBadRequest, "ação inválida")
-		return
-	}
-	for _, v := range []string{x.Dport, x.Sport, x.Source, x.Dest} {
-		if !fwFieldRe.MatchString(v) {
-			writeErr(w, http.StatusBadRequest, "valor inválido: "+v)
-			return
-		}
-	}
-	for _, v := range []string{x.Macro, x.Proto, x.Iface} {
-		if !fwWordRe.MatchString(v) {
-			writeErr(w, http.StatusBadRequest, "valor inválido: "+v)
-			return
-		}
-	}
-	f := url.Values{"type": {x.Type}, "action": {x.Action}, "enable": {b01(x.Enable)}}
-	for k, v := range map[string]string{"macro": x.Macro, "proto": x.Proto, "dport": x.Dport, "sport": x.Sport,
-		"source": x.Source, "dest": x.Dest, "iface": x.Iface, "comment": x.Comment} {
-		if v != "" {
-			f.Set(k, v)
-		}
 	}
 	if err := s.pve.Post(r.Context(), &a, base+"/rules", f, nil); err != nil {
 		writePVEErr(w, err)
@@ -238,14 +256,18 @@ func (s *Server) handleFirewallRuleAdd(w http.ResponseWriter, r *http.Request, a
 	writeJSON(w, map[string]bool{"ok": true})
 }
 
-func (s *Server) handleFirewallRuleToggle(w http.ResponseWriter, r *http.Request, a pve.Auth) {
+// handleFirewallRuleUpdate liga/desliga ({enable}), move ({moveto}) ou
+// troca a regra inteira ({rule}).
+func (s *Server) handleFirewallRuleUpdate(w http.ResponseWriter, r *http.Request, a pve.Auth) {
 	base, err := s.fwBase(r, a)
 	if err != nil {
 		writeErrOrPVE(w, err)
 		return
 	}
 	var body struct {
-		Enable bool `json:"enable"`
+		Enable *bool   `json:"enable"`
+		MoveTo *int    `json:"moveto"`
+		Rule   *fwRule `json:"rule"`
 	}
 	if err := readJSON(r, &body); err != nil {
 		writeErr(w, http.StatusBadRequest, "json inválido")
@@ -256,7 +278,30 @@ func (s *Server) handleFirewallRuleToggle(w http.ResponseWriter, r *http.Request
 		writeErr(w, http.StatusBadRequest, "posição inválida")
 		return
 	}
-	if err := s.pve.Put(r.Context(), &a, base+"/rules/"+pos, url.Values{"enable": {b01(body.Enable)}}, nil); err != nil {
+	f := url.Values{}
+	switch {
+	case body.Rule != nil:
+		var del []string
+		if f, del, err = body.Rule.form(); err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if len(del) > 0 {
+			f.Set("delete", strings.Join(del, ","))
+		}
+	case body.MoveTo != nil:
+		if *body.MoveTo < 0 {
+			writeErr(w, http.StatusBadRequest, "posição inválida")
+			return
+		}
+		f.Set("moveto", strconv.Itoa(*body.MoveTo))
+	case body.Enable != nil:
+		f.Set("enable", b01(*body.Enable))
+	default:
+		writeErr(w, http.StatusBadRequest, "nada pra mudar")
+		return
+	}
+	if err := s.pve.Put(r.Context(), &a, base+"/rules/"+pos, f, nil); err != nil {
 		writePVEErr(w, err)
 		return
 	}

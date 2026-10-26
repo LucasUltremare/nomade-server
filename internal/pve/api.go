@@ -98,6 +98,8 @@ type Resource struct {
 	Content    string  `json:"content"`
 	HAState    string  `json:"hastate"`
 	Lock       string  `json:"lock"`
+	NetIn      Num     `json:"netin"` // bytes desde que ligou
+	NetOut     Num     `json:"netout"`
 }
 
 func (r Resource) IsGuest() bool { return r.Type == "qemu" || r.Type == "lxc" }
