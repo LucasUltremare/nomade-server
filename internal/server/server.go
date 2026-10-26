@@ -28,6 +28,7 @@ type Config struct {
 	DataDir string // /var/lib/mia
 	Version string
 	Demo    bool
+	AppsURL string // API do catálogo do community-scripts (vazio = a pública)
 	// Certificados TLS; vazio = tenta os do PVE e, se não der, gera um próprio.
 	CertFile string
 	KeyFile  string
@@ -41,6 +42,8 @@ type Server struct {
 	state    *state
 	cache    *cache
 	ts       *tailscale
+	apps     *appStore
+	updater  *updater
 }
 
 func New(cfg Config) (*Server, error) {
@@ -60,6 +63,8 @@ func New(cfg Config) (*Server, error) {
 		state:    st,
 		cache:    newCache(),
 		ts:       &tailscale{demo: cfg.Demo},
+		apps:     newAppStore(cfg.AppsURL, cfg.DataDir),
+		updater:  newUpdater(cfg.Version, cfg.DataDir),
 	}, nil
 }
 
@@ -72,6 +77,8 @@ func (s *Server) Run(ctx context.Context) error {
 		Addr:              s.cfg.Listen,
 		Handler:           s.routes(),
 		ReadHeaderTimeout: 10 * time.Second,
+		// Só HTTP/1.1: o proxy de websocket do console depende do Upgrade clássico.
+		TLSNextProto: map[string]func(*http.Server, *tls.Conn, http.Handler){},
 		TLSConfig: &tls.Config{
 			MinVersion:     tls.VersionTLS12,
 			GetCertificate: certs.get,
@@ -108,6 +115,33 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/backup/storages", s.authed(s.handleBackupStorages))
 	mux.HandleFunc("POST /api/backup", s.authed(s.handleBackup))
 	mux.HandleFunc("PUT /api/favorites", s.authed(s.handleFavorites))
+
+	mux.HandleFunc("GET /api/tasks/{upid}", s.authed(s.handleTask))
+	mux.HandleFunc("POST /api/console", s.authed(s.handleConsoleOpen))
+	mux.HandleFunc("GET /api/console/ws", s.authed(s.handleConsoleWS))
+	mux.HandleFunc("GET /api/apps", s.authed(s.handleApps))
+
+	mux.HandleFunc("GET /api/nodes/{node}/lxc-options", s.authed(s.handleLXCOptions))
+	mux.HandleFunc("POST /api/nodes/{node}/templates", s.authed(s.handleTemplateDownload))
+	mux.HandleFunc("POST /api/nodes/{node}/lxc", s.authed(s.handleLXCCreate))
+
+	mux.HandleFunc("GET /api/nodes/{node}/network", s.authed(s.handleNetwork))
+	mux.HandleFunc("POST /api/nodes/{node}/network", s.authed(s.handleNetworkCreate))
+	mux.HandleFunc("DELETE /api/nodes/{node}/network/{iface}", s.authed(s.handleNetworkDelete))
+	mux.HandleFunc("POST /api/nodes/{node}/network/{op}", s.authed(s.handleNetworkApply))
+
+	mux.HandleFunc("GET /api/storage", s.authed(s.handleStorageList))
+	mux.HandleFunc("GET /api/storage/{node}/{storage}/content", s.authed(s.handleStorageContent))
+	mux.HandleFunc("DELETE /api/storage/{node}/{storage}/content", s.authed(s.handleVolumeDelete))
+	mux.HandleFunc("POST /api/storage/{node}/{storage}/upload", s.authed(s.handleUpload))
+	mux.HandleFunc("POST /api/storage/{node}/{storage}/download-url", s.authed(s.handleDownloadURL))
+	mux.HandleFunc("POST /api/nodes/{node}/restore", s.authed(s.handleRestore))
+
+	mux.HandleFunc("GET /api/settings", s.authed(s.handleSettings))
+	mux.HandleFunc("PUT /api/settings/tailscale", s.authed(s.handleTailscaleKey))
+	mux.HandleFunc("POST /api/tailscale/command", s.authed(s.handleTailscaleCommand))
+	mux.HandleFunc("GET /api/update", s.authed(s.handleUpdateInfo))
+	mux.HandleFunc("POST /api/update", s.authed(s.handleUpdateRun))
 
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "rota não existe")

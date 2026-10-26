@@ -31,3 +31,5 @@ export const IconStop = base(<rect x="5" y="5" width="10" height="10" rx="1.5" /
 export const IconExternal = base(<path d="M8 4H4.5v11.5H16V12M11 4h5v5M16 4l-7 7" />);
 export const IconLogout = base(<path d="M8 4H4.5v12H8M12 6.5 15.5 10 12 13.5M15.5 10H8" />);
 export const IconBackup = base(<><path d="M4 7.5h12v8.5H4z" /><path d="M3 4h14v3.5H3zM8 10.5h4" /></>);
+export const IconApps = base(<><rect x="3.5" y="3.5" width="5" height="5" rx="1.2" /><rect x="11.5" y="3.5" width="5" height="5" rx="1.2" /><rect x="3.5" y="11.5" width="5" height="5" rx="1.2" /><path d="M14 11.5v5M11.5 14h5" /></>);
+export const IconDownload = base(<path d="M10 3.5v9M6.5 9 10 12.5 13.5 9M4 16h12" />);

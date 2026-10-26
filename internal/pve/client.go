@@ -6,6 +6,7 @@
 package pve
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -13,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net"
 	"net/http"
 	"net/url"
@@ -43,8 +45,9 @@ func IsAuth(err error) bool {
 }
 
 type Client struct {
-	base string // https://host:8006/api2/json
-	http *http.Client
+	base    string // https://host:8006/api2/json
+	http    *http.Client
+	uploads *http.Client // sem timeout: ISO de vários GB demora
 }
 
 // New cria um cliente. Em loopback a verificação TLS é desligada (o pveproxy
@@ -72,8 +75,9 @@ func New(rawURL string) (*Client, error) {
 	tr.TLSClientConfig = tlsCfg
 	tr.MaxIdleConnsPerHost = 32
 	return &Client{
-		base: strings.TrimRight(u.String(), "/") + "/api2/json",
-		http: &http.Client{Transport: tr, Timeout: 30 * time.Second},
+		base:    strings.TrimRight(u.String(), "/") + "/api2/json",
+		http:    &http.Client{Transport: tr, Timeout: 30 * time.Second},
+		uploads: &http.Client{Transport: tr},
 	}, nil
 }
 
@@ -85,22 +89,24 @@ func isLoopback(host string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
-func (c *Client) do(ctx context.Context, a *Auth, method, path string, form url.Values, out any) error {
-	var body io.Reader
+// raw faz a requisição e devolve o corpo de uma resposta 2xx.
+func (c *Client) raw(ctx context.Context, a *Auth, method, path string, form url.Values, body io.Reader, contentType string, size int64) ([]byte, error) {
 	target := c.base + path
 	if method == http.MethodGet || method == http.MethodDelete {
 		if len(form) > 0 {
 			target += "?" + form.Encode()
 		}
-	} else if form != nil {
-		body = strings.NewReader(form.Encode())
+	} else if body == nil && form != nil {
+		enc := form.Encode()
+		body, contentType, size = strings.NewReader(enc), "application/x-www-form-urlencoded", int64(len(enc))
 	}
 	req, err := http.NewRequestWithContext(ctx, method, target, body)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if body != nil {
-		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("Content-Type", contentType)
+		req.ContentLength = size
 	}
 	if a != nil {
 		req.AddCookie(&http.Cookie{Name: "PVEAuthCookie", Value: a.Ticket})
@@ -108,14 +114,18 @@ func (c *Client) do(ctx context.Context, a *Auth, method, path string, form url.
 			req.Header.Set("CSRFPreventionToken", a.CSRF)
 		}
 	}
-	res, err := c.http.Do(req)
+	cl := c.http
+	if strings.HasPrefix(contentType, "multipart/") {
+		cl = c.uploads
+	}
+	res, err := cl.Do(req)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer res.Body.Close()
 	raw, err := io.ReadAll(io.LimitReader(res.Body, 64<<20))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if res.StatusCode/100 != 2 {
 		msg := res.Status
@@ -135,11 +145,20 @@ func (c *Client) do(ctx context.Context, a *Auth, method, path string, form url.
 		if i := strings.IndexByte(msg, ' '); res.StatusCode == 401 && i > 0 && env.Message == "" {
 			msg = msg[i+1:]
 		}
-		return &Error{Status: res.StatusCode, Msg: msg}
+		return nil, &Error{Status: res.StatusCode, Msg: msg}
 	}
-	if out == nil {
-		return nil
+	return raw, nil
+}
+
+func (c *Client) do(ctx context.Context, a *Auth, method, path string, form url.Values, out any) error {
+	raw, err := c.raw(ctx, a, method, path, form, nil, "", 0)
+	if err != nil || out == nil {
+		return err
 	}
+	return decodeData(raw, path, out)
+}
+
+func decodeData(raw []byte, path string, out any) error {
 	var env struct {
 		Data json.RawMessage `json:"data"`
 	}
@@ -162,6 +181,65 @@ func (c *Client) Post(ctx context.Context, a *Auth, path string, form url.Values
 	}
 	return c.do(ctx, a, http.MethodPost, path, form, out)
 }
+
+func (c *Client) Put(ctx context.Context, a *Auth, path string, form url.Values, out any) error {
+	if form == nil {
+		form = url.Values{}
+	}
+	return c.do(ctx, a, http.MethodPut, path, form, out)
+}
+
+func (c *Client) Delete(ctx context.Context, a *Auth, path string, q url.Values, out any) error {
+	return c.do(ctx, a, http.MethodDelete, path, q, out)
+}
+
+// GetEnvelope é um Get que também devolve os campos fora de "data" (o
+// /nodes/{node}/network, por exemplo, manda o diff pendente em "changes").
+func (c *Client) GetEnvelope(ctx context.Context, a *Auth, path string, q url.Values, out any) (map[string]json.RawMessage, error) {
+	raw, err := c.raw(ctx, a, http.MethodGet, path, q, nil, "", 0)
+	if err != nil {
+		return nil, err
+	}
+	var env map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &env); err != nil {
+		return nil, err
+	}
+	return env, decodeData(raw, path, out)
+}
+
+// Upload manda um arquivo em multipart sem bufferizar: o pveproxy exige
+// Content-Length, então o tamanho é calculado antes a partir de size.
+func (c *Client) Upload(ctx context.Context, a *Auth, path string, fields map[string]string, filename string, file io.Reader, size int64) (string, error) {
+	var head, tail bytes.Buffer
+	mw := multipart.NewWriter(&head)
+	for k, v := range fields {
+		if err := mw.WriteField(k, v); err != nil {
+			return "", err
+		}
+	}
+	if _, err := mw.CreateFormFile("filename", filename); err != nil {
+		return "", err
+	}
+	// O fechamento escreve o boundary final; separa ele num buffer próprio.
+	tw := multipart.NewWriter(&tail)
+	tw.SetBoundary(mw.Boundary())
+	tail.WriteString("\r\n")
+	tw.Close()
+	body := io.MultiReader(&head, io.LimitReader(file, size), &tail)
+	total := int64(head.Len()) + size + int64(tail.Len())
+	raw, err := c.raw(ctx, a, http.MethodPost, path, nil, body, mw.FormDataContentType(), total)
+	if err != nil {
+		return "", err
+	}
+	var upid string
+	return upid, decodeData(raw, path, &upid)
+}
+
+// Endpoint devolve a URL absoluta de um caminho da API (usado no proxy de websocket).
+func (c *Client) Endpoint(path string) string { return c.base + path }
+
+// Transport é o transporte HTTP do cliente, com a mesma config de TLS.
+func (c *Client) Transport() http.RoundTripper { return c.http.Transport }
 
 // LoginResult é o retorno de Login. Com NeedTFA o ticket é só um desafio e
 // precisa ser completado com CompleteTFA.

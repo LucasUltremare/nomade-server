@@ -2,17 +2,19 @@ import { useQueryClient } from "@tanstack/react-query";
 import { api } from "./api";
 import { health, kindLabel } from "./format";
 import {
-  IconHome, IconLXC, IconLogout, IconNetwork, IconNodes, IconSearch, IconShield, IconSidebar,
+  IconApps, IconDownload, IconHome, IconLXC, IconLogout, IconNetwork, IconNodes, IconSearch, IconShield, IconSidebar,
   IconStorage, IconTerminal, IconVM,
 } from "./icons";
 import { Link, usePath } from "./router";
 import { useFavorites, useGuests, useMe, useStatus, useUI } from "./state";
+import { UpdateNotice } from "./Update";
 
 export const NAV = [
   { path: "/", label: "Visão geral", icon: IconHome },
   { path: "/nos", label: "Nós", icon: IconNodes },
   { path: "/vms", label: "Máquinas virtuais", icon: IconVM },
   { path: "/lxc", label: "Contêineres LXC", icon: IconLXC },
+  { path: "/apps", label: "Apps", icon: IconApps },
   { path: "/armazenamento", label: "Armazenamento", icon: IconStorage },
   { path: "/rede", label: "Rede", icon: IconNetwork },
   { path: "/backups", label: "Backups", icon: IconShield },
@@ -88,6 +90,7 @@ export function Sidebar({ onToggle }: { onToggle: () => void }) {
             <dd className={status.tailscale === "online" ? "" : "bad"}>{status.tailscale}</dd>
           </>
         )}
+        <UpdateNotice icon={<IconDownload width={14} height={14} />} />
         <div className="side-user">
           <span title={me?.user}>{me?.user}</span>
           <button onClick={logout} aria-label="Sair" title="Sair"><IconLogout width={16} height={16} /></button>

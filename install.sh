@@ -24,6 +24,8 @@ ETC="/etc/mia"
 ENV_FILE="$ETC/mia.env"
 DATA="/var/lib/mia"
 UNIT="/etc/systemd/system/mia.service"
+UPD_SVC="/etc/systemd/system/mia-update.service"
+UPD_PATH="/etc/systemd/system/mia-update.path"
 SVC_USER="mia"
 
 # ---------- visual (no estilo community-scripts) ----------
@@ -303,13 +305,40 @@ RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 [Install]
 WantedBy=multi-user.target
 EOF
+  write_update_units
   msg_ok "Configuração em ${BL}${ENV_FILE}${CL}"
+}
+
+# Atualização pelo painel: o Mia (sem privilégios) só grava
+# /var/lib/mia/update-request; o systemd observa esse arquivo e roda este
+# instalador como root, com MIA_YES=1. Não dá pro Mia pedir outra coisa.
+write_update_units() {
+  cat >"$UPD_SVC" <<EOF
+[Unit]
+Description=Atualiza o Mia para a última release
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash -c 'curl -fsSL https://raw.githubusercontent.com/${REPO}/main/install.sh | MIA_YES=1 bash -s update'
+EOF
+  cat >"$UPD_PATH" <<EOF
+[Unit]
+Description=Pedido de atualização do Mia vindo do painel
+
+[Path]
+PathChanged=${DATA}/update-request
+
+[Install]
+WantedBy=multi-user.target
+EOF
 }
 
 start_service() {
   msg_info "Iniciando o serviço"
   run systemctl daemon-reload
   run systemctl enable mia
+  run systemctl enable --now mia-update.path
   run systemctl restart mia
   local i
   for i in $(seq 1 30); do
@@ -321,6 +350,11 @@ start_service() {
   done
   msg_error "O serviço não respondeu. Veja: journalctl -u mia -n 50"
   exit 1
+}
+
+# version_gt A B: A é mais nova que B ("v0.2.0" > "v0.1.9").
+version_gt() {
+  [[ "$1" != "$2" ]] && [[ "$(printf '%s\n%s\n' "${1#v}" "${2#v}" | sort -V | tail -n1)" == "${1#v}" ]]
 }
 
 current_port() {
@@ -361,8 +395,9 @@ do_update() {
   local installed
   installed="$("$BIN" version 2>/dev/null || echo "?")"
   resolve_version
-  if [[ "$installed" == "$VERSION" && -z "${MIA_VERSION:-}" ]]; then
-    msg_ok "Já está na versão mais nova (${VERSION})"
+  # Sem MIA_VERSION explícita, só sobe de versão (nunca volta).
+  if [[ -z "${MIA_VERSION:-}" ]] && ! version_gt "$VERSION" "$installed"; then
+    msg_ok "Já está na versão mais nova (${installed})"
     exit 0
   fi
   download
@@ -394,7 +429,8 @@ do_uninstall() {
   ask_yes "Desinstalar" "\nRemover o Mia deste host?\n\nO Proxmox e seus guests não são afetados." || exit 0
   msg_info "Removendo o serviço"
   run systemctl disable --now mia || true
-  rm -f "$UNIT" "$BIN"
+  run systemctl disable --now mia-update.path || true
+  rm -f "$UNIT" "$BIN" "$UPD_SVC" "$UPD_PATH"
   run systemctl daemon-reload
   msg_ok "Serviço removido"
   if ask_yes "Dados" "\nApagar também a configuração e os dados?\n(${ETC}, ${DATA}: favoritos e certificado gerado)"; then

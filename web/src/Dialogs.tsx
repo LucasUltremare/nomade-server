@@ -2,12 +2,12 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type Guest } from "./api";
 import { HOT, bytes, bytesPair, health, kindLabel, pct, uptime } from "./format";
-import { IconExternal, IconPlay, IconPower, IconRestart, IconStar, IconStop, IconX } from "./icons";
+import { IconExternal, IconNetwork, IconPlay, IconPower, IconRestart, IconStar, IconStop, IconTerminal, IconX } from "./icons";
 import { pveURL } from "./NodePanel";
 import { navigate } from "./router";
-import { useFavorites, useGuests, useStatus, useUI } from "./state";
+import { useFavorites, useGuests, useSettings, useStatus, useUI } from "./state";
 
-function Modal({ label, onClose, children, className = "" }: {
+export function Modal({ label, onClose, children, className = "" }: {
   label: string;
   onClose: () => void;
   children: ReactNode;
@@ -66,6 +66,7 @@ export function GuestDialog() {
   const refresh = useRefreshAll();
   const [armed, setArmed] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
+  const [exposing, setExposing] = useState(false);
   const g = guests?.find((x) => x.id === ui.guestId);
 
   const run = useMutation({
@@ -81,6 +82,7 @@ export function GuestDialog() {
     ui.openGuest(null);
     setArmed(null);
     setDone(null);
+    setExposing(false);
     run.reset();
   };
   if (!g) {
@@ -134,6 +136,24 @@ export function GuestDialog() {
             </button>
           );
         })}
+        {g.status === "running" && (g.type === "lxc" ? (
+          <button className="btn" onClick={() => {
+            close();
+            ui.openConsole({ node: g.node, kind: "lxc", vmid: g.vmid, title: g.name });
+          }}>
+            <IconTerminal width={15} height={15} /> Console
+          </button>
+        ) : (
+          <a className="btn" target="_blank" rel="noreferrer"
+            href={pveURL(`?console=kvm&novnc=1&vmid=${g.vmid}&vmname=${encodeURIComponent(g.name)}&node=${encodeURIComponent(g.node)}&resize=scale`)}>
+            <IconTerminal width={15} height={15} /> Console ↗
+          </a>
+        ))}
+        {g.type === "lxc" && g.status === "running" && (
+          <button className="btn" onClick={() => setExposing((v) => !v)} aria-expanded={exposing}>
+            <IconNetwork width={15} height={15} /> Expor no Tailscale
+          </button>
+        )}
         <button className="btn" onClick={() => favs.toggle(g.id)} aria-pressed={isFav}>
           <IconStar width={15} height={15} fill={isFav ? "currentColor" : "none"} /> {isFav ? "Favorito" : "Favoritar"}
         </button>
@@ -141,9 +161,54 @@ export function GuestDialog() {
           <IconExternal width={15} height={15} /> Abrir no Proxmox
         </a>
       </div>
+      {exposing && <ExposeForm g={g} onDone={close} />}
       {run.error && <div className="err">{(run.error as Error).message}</div>}
       {done && !run.error && <div className="ok-msg">{done}</div>}
     </Modal>
+  );
+}
+
+/** Publica uma porta do CT na tailnet com `tailscale serve`, rodando no console do nó. */
+function ExposeForm({ g, onDone }: { g: Guest; onDone: () => void }) {
+  const ui = useUI();
+  const { data: settings } = useSettings();
+  // A porta padrão vem do catálogo de apps, quando o CT tem nome de app conhecido.
+  const { data: apps } = useQuery({ queryKey: ["apps"], queryFn: () => api.apps(), staleTime: 30 * 60_000 });
+  const guess = apps?.apps.find((a) => a.slug === g.name.toLowerCase())?.port;
+  const [touched, setTouched] = useState(false);
+  const [manual, setManual] = useState(80);
+  const port = touched ? manual : guess ?? manual;
+  const setPort = (p: number) => {
+    setTouched(true);
+    setManual(p);
+  };
+  const [name, setName] = useState(g.name.toLowerCase().replace(/[^a-z0-9-]/g, "-"));
+  const [err, setErr] = useState("");
+  if (!settings?.root) return <div className="warn">Só root@pam pode publicar no Tailscale.</div>;
+  if (!settings.tailscale.configured) return <div className="warn">Configure a auth key do Tailscale em Rede → VPN primeiro.</div>;
+  const go = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErr("");
+    try {
+      const r = await api.tailscaleCommand({ action: "expose", vmid: g.vmid, hostname: name, port });
+      onDone();
+      ui.openConsole({ node: g.node, kind: "node", title: `Tailscale · ${g.name}`, autorun: r.command });
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+  };
+  return (
+    <form className="expose" onSubmit={go}>
+      <div className="form-grid">
+        <label className="field">Nome na tailnet<input value={name} onChange={(e) => setName(e.target.value.toLowerCase())} /></label>
+        <label className="field">Porta do app no CT<input type="number" min={1} max={65535} value={port} onChange={(e) => setPort(+e.target.value)} /></label>
+      </div>
+      <p className="muted" style={{ fontSize: 12, margin: "8px 0 0" }}>
+        Instala o Tailscale dentro do CT e publica <span className="mono">https://{name || "nome"}.sua-tailnet.ts.net</span> → porta {port}.
+      </p>
+      {err && <div className="err">{err}</div>}
+      <div className="dialog-actions"><button className="btn primary">Publicar</button></div>
+    </form>
   );
 }
 

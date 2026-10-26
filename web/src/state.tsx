@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type Guest, type Range } from "./api";
+import type { ConsoleTarget } from "./Terminal";
 
 // Estado de interface compartilhado: nó em foco, diálogos abertos.
 interface UI {
@@ -14,6 +15,12 @@ interface UI {
   setBackupOpen: (v: boolean) => void;
   range: Range;
   setRange: (r: Range) => void;
+  /** Console em tela cheia (shell do nó, de um LXC, ou rodando um comando). */
+  consoleTarget: ConsoleTarget | null;
+  openConsole: (t: ConsoleTarget | null) => void;
+  /** Diálogo de novo LXC; o valor é o nó sugerido. */
+  newLxc: string | null;
+  setNewLxc: (node: string | null) => void;
 }
 
 const Ctx = createContext<UI | null>(null);
@@ -24,9 +31,14 @@ export function UIProvider({ children }: { children: ReactNode }) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [backupOpen, setBackupOpen] = useState(false);
   const [range, setRange] = useState<Range>("24h");
+  const [consoleTarget, openConsole] = useState<ConsoleTarget | null>(null);
+  const [newLxc, setNewLxc] = useState<string | null>(null);
   const value = useMemo(
-    () => ({ node, setNode, guestId, openGuest, searchOpen, setSearchOpen, backupOpen, setBackupOpen, range, setRange }),
-    [node, guestId, searchOpen, backupOpen, range],
+    () => ({
+      node, setNode, guestId, openGuest, searchOpen, setSearchOpen, backupOpen, setBackupOpen, range, setRange,
+      consoleTarget, openConsole, newLxc, setNewLxc,
+    }),
+    [node, guestId, searchOpen, backupOpen, range, consoleTarget, newLxc],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
@@ -48,6 +60,8 @@ export function useOverview() {
     placeholderData: (prev) => prev,
   });
 }
+
+export const useSettings = () => useQuery({ queryKey: ["settings"], queryFn: api.settings, staleTime: 60_000 });
 
 export const useStatus = () => useQuery({ queryKey: ["status"], queryFn: api.status, refetchInterval: 15_000 });
 

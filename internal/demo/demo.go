@@ -127,15 +127,28 @@ func inBackup(nodeName string, t int64) bool {
 
 type Server struct {
 	mu      sync.Mutex
+	list    []*guest // guests do demo (cresce quando cria LXC/instala app)
 	status  map[int]string
 	running map[string]time.Time // upid -> fim, de tasks disparadas no demo
+	tasksBy map[string]*task     // tasks com log (criar CT, baixar template...)
+	nets    map[string]*netState
+	vols    map[string][]volume // "node/storage" -> conteúdo
 	srv     *httptest.Server
+}
+
+// guests devolve uma cópia da lista atual.
+func (s *Server) guests() []*guest {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]*guest(nil), s.list...)
 }
 
 // Start sobe o PVE falso em 127.0.0.1 com TLS e devolve a URL base.
 func Start() *Server {
-	s := &Server{status: map[int]string{}, running: map[string]time.Time{}}
-	for _, g := range guests {
+	s := &Server{status: map[int]string{}, running: map[string]time.Time{}, tasksBy: map[string]*task{},
+		list: append([]*guest(nil), guests...)}
+	s.initManage()
+	for _, g := range s.list {
 		st := g.status
 		if st == "" {
 			st = "running"
@@ -158,6 +171,7 @@ func Start() *Server {
 	mux.HandleFunc("GET /api2/json/nodes/{node}/storage", s.auth(s.storage))
 	mux.HandleFunc("POST /api2/json/nodes/{node}/vzdump", s.auth(s.vzdump))
 	mux.HandleFunc("POST /api2/json/nodes/{node}/{kind}/{vmid}/status/{action}", s.auth(s.guestAction))
+	s.routesManage(mux)
 	s.srv = httptest.NewTLSServer(mux)
 	return s
 }
@@ -264,9 +278,9 @@ func (s *Server) statusOf(vmid int) string {
 
 func (s *Server) isRunning(g *guest) bool { return s.statusOf(g.vmid) == "running" }
 
-func nodeCPU(n *node, t int64, running func(*guest) bool) float64 {
+func nodeCPU(n *node, list []*guest, t int64, running func(*guest) bool) float64 {
 	used := 1.2 // overhead do host (pveproxy, zfs, corosync)
-	for _, g := range guests {
+	for _, g := range list {
 		if g.node == n.name && running(g) {
 			used += guestCPU(g, t) * float64(g.cores)
 		}
@@ -277,9 +291,9 @@ func nodeCPU(n *node, t int64, running func(*guest) bool) float64 {
 	return math.Min(1, used/float64(n.threads))
 }
 
-func nodeMem(n *node, t int64, running func(*guest) bool) int64 {
+func nodeMem(n *node, list []*guest, t int64, running func(*guest) bool) int64 {
 	used := int64(float64(n.mem) * 0.18) // host + ARC
-	for _, g := range guests {
+	for _, g := range list {
 		if g.node == n.name && running(g) {
 			used += guestMem(g, t)
 		}
@@ -289,10 +303,11 @@ func nodeMem(n *node, t int64, running func(*guest) bool) int64 {
 
 func (s *Server) resources(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().Unix()
+	list := s.guests()
 	rows := []map[string]any{}
 	for _, n := range nodes {
 		rows = append(rows, map[string]any{"id": "node/" + n.name, "type": "node", "node": n.name, "status": "online",
-			"cpu": nodeCPU(n, now, s.isRunning), "maxcpu": n.threads, "mem": nodeMem(n, now, s.isRunning), "maxmem": n.mem,
+			"cpu": nodeCPU(n, list, now, s.isRunning), "maxcpu": n.threads, "mem": nodeMem(n, list, now, s.isRunning), "maxmem": n.mem,
 			"disk": 12 * gib, "maxdisk": 94 * gib, "uptime": now - n.boot.Unix(), "level": ""})
 		for _, st := range storages(n) {
 			rows = append(rows, map[string]any{"id": "storage/" + n.name + "/" + st["storage"].(string), "type": "storage",
@@ -300,7 +315,7 @@ func (s *Server) resources(w http.ResponseWriter, r *http.Request) {
 				"disk": st["used"], "maxdisk": st["total"], "content": st["content"], "shared": st["shared"]})
 		}
 	}
-	for _, g := range guests {
+	for _, g := range list {
 		running := s.isRunning(g)
 		row := map[string]any{"id": fmt.Sprintf("%s/%d", g.kind, g.vmid), "type": g.kind, "node": g.node, "vmid": g.vmid,
 			"name": g.name, "status": s.statusOf(g.vmid), "maxcpu": g.cores, "maxmem": g.mem, "maxdisk": g.disk,
@@ -331,8 +346,9 @@ func (s *Server) nodeStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := time.Now().Unix()
-	cpu := nodeCPU(n, now, s.isRunning)
-	mem := nodeMem(n, now, s.isRunning)
+	list := s.guests()
+	cpu := nodeCPU(n, list, now, s.isRunning)
+	mem := nodeMem(n, list, now, s.isRunning)
 	load := cpu * float64(n.threads) * 0.8
 	reply(w, map[string]any{
 		"cpu":        cpu,
@@ -386,10 +402,11 @@ func (s *Server) nodeRRD(w http.ResponseWriter, r *http.Request) {
 	}
 	tf := r.URL.Query().Get("timeframe")
 	step := timeframes[tf][1]
+	list := s.guests()
 	// O histórico assume que todo mundo que está rodando agora rodou antes.
 	reply(w, series(tf, func(t int64) map[string]any {
-		cpu := avgOver(t, step, func(t int64) float64 { return nodeCPU(n, t, s.isRunning) })
-		mem := avgOver(t, step, func(t int64) float64 { return float64(nodeMem(n, t, s.isRunning)) })
+		cpu := avgOver(t, step, func(t int64) float64 { return nodeCPU(n, list, t, s.isRunning) })
+		mem := avgOver(t, step, func(t int64) float64 { return float64(nodeMem(n, list, t, s.isRunning)) })
 		return map[string]any{"time": t, "cpu": cpu, "maxcpu": n.threads, "memused": mem, "memtotal": n.mem,
 			"loadavg": cpu * float64(n.threads) * 0.8}
 	}))
@@ -398,7 +415,7 @@ func (s *Server) nodeRRD(w http.ResponseWriter, r *http.Request) {
 func (s *Server) guestRRD(w http.ResponseWriter, r *http.Request) {
 	vmid, _ := strconv.Atoi(r.PathValue("vmid"))
 	var g *guest
-	for _, x := range guests {
+	for _, x := range s.guests() {
 		if x.vmid == vmid && x.kind == r.PathValue("kind") {
 			g = x
 		}
@@ -533,7 +550,7 @@ func (s *Server) guestAction(w http.ResponseWriter, r *http.Request) {
 		fail(w, 404, "no such guest")
 		return
 	}
-	for _, g := range guests {
+	for _, g := range s.list {
 		if g.vmid == vmid && g.template {
 			fail(w, 500, "cannot start template")
 			return

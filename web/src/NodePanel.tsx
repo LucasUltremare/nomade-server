@@ -7,11 +7,6 @@ import { useStatus, useUI } from "./state";
 /** URL do pveproxy no mesmo host (o Mia roda no nó, a API do PVE na 8006). */
 export const pveURL = (hash = "") => `https://${location.hostname}:8006/${hash}`;
 
-export function shellURL(node: string) {
-  const q = new URLSearchParams({ console: "shell", xtermjs: "1", vmid: "0", vmname: "", node, cmd: "" });
-  return pveURL(`?${q}`);
-}
-
 export function NodePanel() {
   const ui = useUI();
   const { data: status } = useStatus();
@@ -96,9 +91,9 @@ export function NodePanel() {
 
       {name && (
         <div className="panel-actions">
-          <a className="btn-white" href={shellURL(name)} target="_blank" rel="noreferrer">
+          <button className="btn-white" onClick={() => ui.openConsole({ node: name, kind: "node", title: `Shell · ${name}` })}>
             <IconTerminal width={16} height={16} /> Abrir shell
-          </a>
+          </button>
           <button className="btn-ghost" disabled title="Em breve">Migrar guests</button>
         </div>
       )}

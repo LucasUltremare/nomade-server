@@ -20,7 +20,7 @@ Then open `https://<host-ip>:8443` and sign in with your Proxmox account (`root@
 |---|---|
 | `/usr/local/bin/mia` | binary |
 | `/etc/mia/mia.env` | config (port, API URL, certificate) |
-| `/var/lib/mia` | per-user favorites, generated certificate |
+| `/var/lib/mia` | per-user favorites, Tailscale auth key, app catalog cache, generated certificate |
 | `journalctl -u mia -f` | logs |
 
 Unattended install: `MIA_YES=1 bash install.sh install` (also `update` and `uninstall`). Pin a version with `MIA_VERSION=v0.1.0`; change the port with `MIA_PORT=9443`.
@@ -28,13 +28,22 @@ Unattended install: `MIA_YES=1 bash install.sh install` (also `update` and `unin
 ## What's there
 
 - **Overview**: average cluster load compared with the previous period (24h, 7d, 30d), CPU distribution across all guests with the peak highlighted, CPU and RAM trend with backup windows (taken from `vzdump` tasks) and which guests drove the peak.
-- **Node panel**: CPU, load, memory, uptime, processor, IP, ZFS pool and guests, plus a shortcut to the node shell in Proxmox.
-- **Guests**: VM and LXC lists with filtering; detail view with start, shutdown, reboot and force stop (with confirmation); favorites.
-- **Cluster backup** (`⌘B`): `vzdump` of every guest on each node, picking storage and mode.
-- **Search** (`/` or `⌘K`) across VMs, LXCs and nodes.
-- Light and dark themes, mobile layout.
+- **Node panel**: CPU, load, memory, uptime, processor, IP, ZFS pool and guests, plus the node shell.
+- **Console**: node shell and LXC consoles in the browser (xterm.js over Proxmox's own `termproxy`, proxied by Mia with the user's ticket). VM consoles still open noVNC in Proxmox.
+- **Apps**: the [Proxmox VE Helper-Scripts](https://community-scripts.org) catalog (~700 apps), with search and categories. Installing runs the script in the node console so you watch it live and can answer its prompts. CPU, RAM and disk come pre-filled from the script's defaults.
+- **New LXC**: template (downloaded on the fly if needed), resources, storage, bridge, VLAN, DHCP or static IP, password or SSH key, nesting and `/dev/net/tun`, with the task log streamed live.
+- **Guests**: VM and LXC lists; detail view with start, shutdown, reboot and force stop (with confirmation), console, favorites.
+- **Network**: interfaces per node, new bridges and VLANs, pending-changes diff with apply/revert, current traffic.
+- **VPN · Tailscale**: save an auth key once, then
+  - **gateway**: one click creates a small Debian LXC running Tailscale as a subnet router for the bridge's network, so everything on the LAN (including what you add later) is reachable over the VPN;
+  - **per-app address**: from the app store (tick *Publish on Tailscale*) or any running LXC (*Expose on Tailscale*), Mia installs Tailscale inside the container and publishes the app with `tailscale serve` at `https://<name>.<tailnet>.ts.net`.
+- **Storage**: every storage with usage; ISOs, templates, backups and disks; upload with progress, download from URL, delete, and restore a backup into a new guest.
+- **Cluster backup** (`⌘B`), **search** (`/` or `⌘K`), light and dark themes, mobile layout.
+- **Updates**: Mia checks GitHub for a newer release and shows it in the sidebar. `root@pam` can update with one click (a systemd path unit runs the installer as root; Mia itself stays unprivileged).
 
-Still placeholders: Storage, Network, Backups, Console, the Health/Backups/Firewall/Tasks tabs, guest migration and notifications.
+Things that run as root on the node (app installs, Tailscale) go through the node console, so they need `root@pam` and you can read every command before and while it runs.
+
+Still placeholders: the Health/Backups/Firewall/Tasks tabs, backup jobs, guest migration and notifications.
 
 ## Development
 
@@ -47,7 +56,7 @@ make dev         # demo backend + Vite with hot reload at http://localhost:5173
 make test
 ```
 
-`--demo` starts a fake Proxmox (`internal/demo`) with 3 nodes, 16 guests and synthetic metrics. Any username and password work (except the password `errada`); a username starting with `tfa` asks for a second factor, and the code is `123456`.
+`--demo` starts a fake Proxmox (`internal/demo`) with 3 nodes, 16 guests and synthetic metrics, plus a fake shell, networks, storages and tasks, so every screen works locally (the app catalog is the real one). Any username and password work (except the password `errada`); a username starting with `tfa` asks for a second factor, and the code is `123456`.
 
 ```
 cmd/mia/            entry point (mia serve, mia version)

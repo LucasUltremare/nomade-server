@@ -239,3 +239,66 @@ func (c *Client) GuestAction(ctx context.Context, a *Auth, node, kind string, vm
 	err := c.Post(ctx, a, path, nil, &upid)
 	return upid, err
 }
+
+// Term é o retorno de termproxy: uma porta local no nó e um ticket de uso
+// único pra abrir o websocket do terminal.
+type Term struct {
+	Port   Num    `json:"port"`
+	Ticket string `json:"ticket"`
+	User   string `json:"user"`
+	UPID   string `json:"upid"`
+}
+
+// GuestPath monta /nodes/{node} ou /nodes/{node}/{kind}/{vmid}.
+func GuestPath(node, kind string, vmid int) string {
+	p := "/nodes/" + url.PathEscape(node)
+	if kind != "" && kind != "node" {
+		p += fmt.Sprintf("/%s/%d", kind, vmid)
+	}
+	return p
+}
+
+// Termproxy abre um terminal no nó (kind "node") ou num LXC.
+func (c *Client) Termproxy(ctx context.Context, a *Auth, node, kind string, vmid int) (Term, error) {
+	var t Term
+	return t, c.Post(ctx, a, GuestPath(node, kind, vmid)+"/termproxy", nil, &t)
+}
+
+func (c *Client) NextID(ctx context.Context, a *Auth) (int, error) {
+	var id Num
+	err := c.Get(ctx, a, "/cluster/nextid", nil, &id)
+	return int(id), err
+}
+
+type TaskStatus struct {
+	Status     string `json:"status"` // running | stopped
+	ExitStatus string `json:"exitstatus"`
+	Type       string `json:"type"`
+	ID         string `json:"id"`
+	StartTime  int64  `json:"starttime"`
+}
+
+type TaskLine struct {
+	N int    `json:"n"`
+	T string `json:"t"`
+}
+
+func (c *Client) TaskStatus(ctx context.Context, a *Auth, node, upid string) (TaskStatus, error) {
+	var st TaskStatus
+	return st, c.Get(ctx, a, "/nodes/"+url.PathEscape(node)+"/tasks/"+url.PathEscape(upid)+"/status", nil, &st)
+}
+
+func (c *Client) TaskLog(ctx context.Context, a *Auth, node, upid string, start int) ([]TaskLine, error) {
+	var out []TaskLine
+	q := url.Values{"start": {fmt.Sprint(start)}, "limit": {"500"}}
+	return out, c.Get(ctx, a, "/nodes/"+url.PathEscape(node)+"/tasks/"+url.PathEscape(upid)+"/log", q, &out)
+}
+
+// NodeOfUPID extrai o nó de um UPID ("UPID:pve-01:...").
+func NodeOfUPID(upid string) string {
+	parts := strings.Split(upid, ":")
+	if len(parts) > 2 && parts[0] == "UPID" {
+		return parts[1]
+	}
+	return ""
+}

@@ -55,12 +55,14 @@ func (c *cache) invalidate(user string) {
 	}
 }
 
-// state é o pouco que o Mia guarda em disco: favoritos por usuário.
+// state é o pouco que o Mia guarda em disco: favoritos por usuário e a
+// auth key do Tailscale.
 type state struct {
 	mu   sync.Mutex
 	path string
 	data struct {
-		Favorites map[string][]string `json:"favorites"`
+		Favorites    map[string][]string `json:"favorites"`
+		TailscaleKey string              `json:"tailscaleKey,omitempty"`
 	}
 }
 
@@ -95,12 +97,30 @@ func (s *state) setFavorites(user string, ids []string) error {
 		ids = []string{}
 	}
 	s.data.Favorites[user] = slices.Compact(ids)
+	return s.save()
+}
+
+func (s *state) tailscaleKey() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.data.TailscaleKey
+}
+
+func (s *state) setTailscaleKey(k string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.data.TailscaleKey = k
+	return s.save()
+}
+
+// save grava o estado; chamar com s.mu travado.
+func (s *state) save() error {
 	raw, err := json.MarshalIndent(s.data, "", "  ")
 	if err != nil {
 		return err
 	}
 	tmp := s.path + ".tmp"
-	if err := os.WriteFile(tmp, raw, 0o640); err != nil {
+	if err := os.WriteFile(tmp, raw, 0o600); err != nil {
 		return err
 	}
 	return os.Rename(tmp, s.path)

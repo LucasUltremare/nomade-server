@@ -3,6 +3,7 @@ import type { Guest, GuestType, Range } from "./api";
 import { DotPlot, binSamples } from "./charts/DotPlot";
 import { Trend } from "./charts/Trend";
 import { HOT, IDLE, bytesPair, health, kindLabel, num, pct, pctFixed, uptime } from "./format";
+import { navigate } from "./router";
 import { useFavorites, useGuests, useOverview, useStatus, useUI } from "./state";
 
 const RANGE_LABEL: Record<Range, [string, string]> = {
@@ -129,8 +130,18 @@ export function GuestsPage({ type }: { type: GuestType }) {
   const title = type === "qemu" ? "Máquinas virtuais" : "Contêineres LXC";
   return (
     <div className="content">
-      <h1>{title}</h1>
-      <span className="tag">{rows.length} de {(data ?? []).filter((g) => g.type === type).length}</span>
+      <div className="page-head">
+        <div>
+          <h1>{title}</h1>
+          <span className="tag">{rows.length} de {(data ?? []).filter((g) => g.type === type).length}</span>
+        </div>
+        {type === "lxc" && (
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="btn small" onClick={() => navigate("/apps")}>Instalar app</button>
+            <button className="btn small primary" onClick={() => ui.setNewLxc(ui.node ?? "")}>Novo LXC</button>
+          </div>
+        )}
+      </div>
       <div className="filters">
         <input placeholder="Filtrar por nome, id, nó, tag…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Filtrar" />
         <label className="muted" style={{ fontSize: 13 }}>
@@ -184,8 +195,13 @@ export function NodesPage() {
   const { data: guests } = useGuests();
   return (
     <div className="content">
-      <h1>Nós</h1>
-      <span className="tag">{data ? `${data.cluster.nodesOnline}/${data.cluster.nodes} online` : "…"}</span>
+      <div className="page-head">
+        <div>
+          <h1>Nós</h1>
+          <span className="tag">{data ? `${data.cluster.nodesOnline}/${data.cluster.nodes} online` : "…"}</span>
+        </div>
+        <button className="btn small primary" onClick={() => ui.setNewLxc(ui.node ?? "")}>Novo LXC</button>
+      </div>
       <div className="node-grid">
         {(data?.nodes ?? []).map((n) => {
           const count = (guests ?? []).filter((g) => g.node === n.name && !g.template);

@@ -1,7 +1,12 @@
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ApiError, setUnauthorizedHandler } from "./api";
+import { AppsPage } from "./Apps";
+import { ConsoleModal, ConsolePage } from "./Console";
 import { BackupDialog, GuestDialog, SearchPalette } from "./Dialogs";
+import { NetworkPage } from "./Network";
+import { NewLxcDialog } from "./NewLxc";
+import { StoragePage } from "./Storage";
 import { IconBell, IconCalendar, IconSidebar } from "./icons";
 import { Login } from "./Login";
 import { NodePanel } from "./NodePanel";
@@ -80,10 +85,11 @@ function Shell() {
     case "/nos": page = <NodesPage />; break;
     case "/vms": page = <GuestsPage type="qemu" />; break;
     case "/lxc": page = <GuestsPage type="lxc" />; break;
-    case "/armazenamento": page = <SoonPage title="Armazenamento" what="Storages, pools ZFS, discos e SMART de cada nó." />; break;
-    case "/rede": page = <SoonPage title="Rede" what="Bridges, VLANs, SDN e o tráfego de cada interface." />; break;
-    case "/backups": page = <SoonPage title="Backups" what="Jobs agendados, histórico do vzdump e restauração." />; break;
-    case "/console": page = <SoonPage title="Console" what="Shell dos nós e console dos guests direto no Mia." />; break;
+    case "/apps": page = <AppsPage />; break;
+    case "/armazenamento": page = <StoragePage />; break;
+    case "/rede": page = <NetworkPage />; break;
+    case "/backups": page = <SoonPage title="Backups" what="Jobs agendados e histórico do vzdump. Os arquivos de backup e a restauração já estão em Armazenamento." />; break;
+    case "/console": page = <ConsolePage />; break;
     default: page = <SoonPage title="Não encontrado" what="Essa página não existe." />;
   }
 
@@ -117,6 +123,8 @@ function Shell() {
       <GuestDialog />
       <BackupDialog />
       <SearchPalette />
+      <NewLxcDialog />
+      <ConsoleModal />
     </div>
   );
 }
