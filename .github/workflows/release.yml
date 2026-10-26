@@ -1,0 +1,39 @@
+# Publica uma release quando sobe uma tag v*. O install.sh baixa daqui.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Frontend
+        run: npm ci --prefix web && npm run build --prefix web
+
+      - name: Testes
+        run: go test ./...
+
+      - name: Binários
+        run: make release VERSION="${GITHUB_REF_NAME}"
+
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${GITHUB_REF_NAME}" dist/* --title "Mia ${GITHUB_REF_NAME}" --generate-notes

@@ -1,0 +1,477 @@
+// Package server é o backend HTTP do Mia: serve o frontend embutido e uma API
+// JSON que agrega e traduz a API do Proxmox pra o que as telas precisam.
+package server
+
+import (
+	"context"
+	"crypto/tls"
+	"encoding/json"
+	"errors"
+	"io/fs"
+	"log/slog"
+	"net"
+	"net/http"
+	"net/url"
+	"path"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/LucasUltremare/nomade-server/internal/pve"
+	"github.com/LucasUltremare/nomade-server/web"
+)
+
+type Config struct {
+	Listen  string // :8443
+	PVEURL  string // https://127.0.0.1:8006
+	DataDir string // /var/lib/mia
+	Version string
+	Demo    bool
+	// Certificados TLS; vazio = tenta os do PVE e, se não der, gera um próprio.
+	CertFile string
+	KeyFile  string
+}
+
+type Server struct {
+	cfg      Config
+	pve      *pve.Client
+	sessions *sessionStore
+	limiter  *limiter
+	state    *state
+	cache    *cache
+	ts       *tailscale
+}
+
+func New(cfg Config) (*Server, error) {
+	c, err := pve.New(cfg.PVEURL)
+	if err != nil {
+		return nil, err
+	}
+	st, err := loadState(cfg.DataDir)
+	if err != nil {
+		return nil, err
+	}
+	return &Server{
+		cfg:      cfg,
+		pve:      c,
+		sessions: newSessionStore(),
+		limiter:  &limiter{hits: map[string][]time.Time{}},
+		state:    st,
+		cache:    newCache(),
+		ts:       &tailscale{demo: cfg.Demo},
+	}, nil
+}
+
+func (s *Server) Run(ctx context.Context) error {
+	certs, err := newCertSource(s.cfg)
+	if err != nil {
+		return err
+	}
+	srv := &http.Server{
+		Addr:              s.cfg.Listen,
+		Handler:           s.routes(),
+		ReadHeaderTimeout: 10 * time.Second,
+		TLSConfig: &tls.Config{
+			MinVersion:     tls.VersionTLS12,
+			GetCertificate: certs.get,
+		},
+	}
+	go func() {
+		<-ctx.Done()
+		shut, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		srv.Shutdown(shut)
+	}()
+	slog.Info("mia no ar", "listen", s.cfg.Listen, "pve", s.cfg.PVEURL, "demo", s.cfg.Demo)
+	if err := srv.ListenAndServeTLS("", ""); !errors.Is(err, http.ErrServerClosed) {
+		return err
+	}
+	return nil
+}
+
+func (s *Server) routes() http.Handler {
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("GET /api/meta", s.handleMeta)
+	mux.HandleFunc("GET /api/realms", s.handleRealms)
+	mux.HandleFunc("POST /api/login", s.handleLogin)
+	mux.HandleFunc("POST /api/login/tfa", s.handleTFA)
+	mux.HandleFunc("POST /api/logout", s.handleLogout)
+
+	mux.HandleFunc("GET /api/me", s.authed(s.handleMe))
+	mux.HandleFunc("GET /api/status", s.authed(s.handleStatus))
+	mux.HandleFunc("GET /api/overview", s.authed(s.handleOverview))
+	mux.HandleFunc("GET /api/guests", s.authed(s.handleGuests))
+	mux.HandleFunc("GET /api/nodes/{node}", s.authed(s.handleNode))
+	mux.HandleFunc("POST /api/guests/{kind}/{vmid}/{action}", s.authed(s.handleGuestAction))
+	mux.HandleFunc("GET /api/backup/storages", s.authed(s.handleBackupStorages))
+	mux.HandleFunc("POST /api/backup", s.authed(s.handleBackup))
+	mux.HandleFunc("PUT /api/favorites", s.authed(s.handleFavorites))
+
+	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
+		writeErr(w, http.StatusNotFound, "rota não existe")
+	})
+	mux.Handle("/", s.static())
+	return securityHeaders(mux)
+}
+
+func securityHeaders(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hd := w.Header()
+		hd.Set("X-Content-Type-Options", "nosniff")
+		hd.Set("X-Frame-Options", "DENY")
+		hd.Set("Referrer-Policy", "same-origin")
+		hd.Set("Strict-Transport-Security", "max-age=31536000")
+		h.ServeHTTP(w, r)
+	})
+}
+
+// static serve o build do Vite; rotas desconhecidas caem no index.html (SPA).
+func (s *Server) static() http.Handler {
+	dist, _ := fs.Sub(web.Dist, "dist")
+	files := http.FileServerFS(dist)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
+		if p != "" {
+			if _, err := fs.Stat(dist, p); err == nil {
+				if strings.HasPrefix(p, "assets/") {
+					w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+				}
+				files.ServeHTTP(w, r)
+				return
+			}
+		}
+		index, err := fs.ReadFile(dist, "index.html")
+		if err != nil {
+			http.Error(w, "frontend não compilado: rode `make web` antes do build", http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Write(index)
+	})
+}
+
+type authedHandler func(w http.ResponseWriter, r *http.Request, a pve.Auth)
+
+// authed exige sessão completa e, em escrita, o header X-Mia (o SameSite já
+// barra CSRF, isso é a segunda tranca).
+func (s *Server) authed(h authedHandler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		sess := s.sessions.get(r)
+		if sess == nil || sess.pendingTFA {
+			writeErr(w, http.StatusUnauthorized, "sessão expirada")
+			return
+		}
+		if r.Method != http.MethodGet && r.Header.Get("X-Mia") != "1" {
+			writeErr(w, http.StatusForbidden, "requisição sem X-Mia")
+			return
+		}
+		a, err := sess.current(r.Context(), s.pve)
+		if err != nil {
+			s.sessions.drop(sess.id)
+			clearSessionCookie(w)
+			writeErr(w, http.StatusUnauthorized, "sessão expirada")
+			return
+		}
+		h(w, r, a)
+	}
+}
+
+func writeJSON(w http.ResponseWriter, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	json.NewEncoder(w).Encode(v)
+}
+
+func writeErr(w http.ResponseWriter, status int, msg string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(map[string]string{"error": msg})
+}
+
+// writePVEErr traduz um erro da API do PVE pra resposta do Mia.
+func writePVEErr(w http.ResponseWriter, err error) {
+	var pe *pve.Error
+	if errors.As(err, &pe) {
+		status := pe.Status
+		if status == http.StatusUnauthorized {
+			// Ticket válido mas sem permissão vira 403 pro front não deslogar.
+			status = http.StatusForbidden
+		}
+		if status < 400 || status > 599 {
+			status = http.StatusBadGateway
+		}
+		writeErr(w, status, pe.Msg)
+		return
+	}
+	slog.Error("pve", "err", err)
+	writeErr(w, http.StatusBadGateway, "não consegui falar com o Proxmox: "+err.Error())
+}
+
+func readJSON(r *http.Request, v any) error {
+	return json.NewDecoder(http.MaxBytesReader(nil, r.Body, 1<<20)).Decode(v)
+}
+
+func clientIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
+// --- auth ---
+
+func (s *Server) handleMeta(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, map[string]any{"version": s.cfg.Version, "demo": s.cfg.Demo})
+}
+
+func (s *Server) handleRealms(w http.ResponseWriter, r *http.Request) {
+	realms, err := s.pve.Realms(r.Context())
+	if err != nil {
+		writePVEErr(w, err)
+		return
+	}
+	writeJSON(w, realms)
+}
+
+func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	ip := clientIP(r)
+	if s.limiter.blocked(ip) {
+		writeErr(w, http.StatusTooManyRequests, "muitas tentativas, espera um minuto")
+		return
+	}
+	var body struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+		Realm    string `json:"realm"`
+	}
+	if err := readJSON(r, &body); err != nil || body.Username == "" || body.Password == "" {
+		writeErr(w, http.StatusBadRequest, "usuário e senha obrigatórios")
+		return
+	}
+	user := body.Username
+	if !strings.Contains(user, "@") {
+		realm := body.Realm
+		if realm == "" {
+			realm = "pam"
+		}
+		user += "@" + realm
+	}
+	res, err := s.pve.Login(r.Context(), user, body.Password)
+	if err != nil {
+		if pve.IsAuth(err) {
+			s.limiter.fail(ip)
+			writeErr(w, http.StatusUnauthorized, "usuário ou senha inválidos")
+			return
+		}
+		writePVEErr(w, err)
+		return
+	}
+	sess := s.sessions.create(res.Auth, res.NeedTFA)
+	setSessionCookie(w, sess.id)
+	writeJSON(w, map[string]any{"user": res.Auth.User, "needTfa": res.NeedTFA})
+}
+
+func (s *Server) handleTFA(w http.ResponseWriter, r *http.Request) {
+	ip := clientIP(r)
+	if s.limiter.blocked(ip) {
+		writeErr(w, http.StatusTooManyRequests, "muitas tentativas, espera um minuto")
+		return
+	}
+	sess := s.sessions.get(r)
+	if sess == nil || !sess.pendingTFA {
+		writeErr(w, http.StatusUnauthorized, "faça login de novo")
+		return
+	}
+	var body struct {
+		Code string `json:"code"`
+		Kind string `json:"kind"` // totp | recovery | yubico
+	}
+	if err := readJSON(r, &body); err != nil || body.Code == "" {
+		writeErr(w, http.StatusBadRequest, "código obrigatório")
+		return
+	}
+	kind := body.Kind
+	if kind == "" {
+		kind = "totp"
+	}
+	sess.mu.Lock()
+	challenge := sess.auth
+	sess.mu.Unlock()
+	a, err := s.pve.CompleteTFA(r.Context(), challenge.User, challenge.Ticket, kind+":"+strings.TrimSpace(body.Code))
+	if err != nil {
+		if pve.IsAuth(err) {
+			s.limiter.fail(ip)
+			writeErr(w, http.StatusUnauthorized, "código inválido")
+			return
+		}
+		writePVEErr(w, err)
+		return
+	}
+	s.sessions.drop(sess.id)
+	full := s.sessions.create(a, false)
+	setSessionCookie(w, full.id)
+	writeJSON(w, map[string]any{"user": a.User})
+}
+
+func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	if sess := s.sessions.get(r); sess != nil {
+		s.sessions.drop(sess.id)
+	}
+	clearSessionCookie(w)
+	writeJSON(w, map[string]bool{"ok": true})
+}
+
+func (s *Server) handleMe(w http.ResponseWriter, r *http.Request, a pve.Auth) {
+	writeJSON(w, map[string]any{"user": a.User, "favorites": s.state.favorites(a.User)})
+}
+
+// --- guests ---
+
+func (s *Server) handleGuests(w http.ResponseWriter, r *http.Request, a pve.Auth) {
+	res, err := s.resources(r.Context(), a)
+	if err != nil {
+		writePVEErr(w, err)
+		return
+	}
+	out := []guestView{}
+	for _, g := range res {
+		if g.IsGuest() {
+			out = append(out, toGuest(g))
+		}
+	}
+	slices.SortFunc(out, func(x, y guestView) int { return x.VMID - y.VMID })
+	writeJSON(w, out)
+}
+
+var guestActions = []string{"start", "shutdown", "stop", "reboot", "suspend", "resume"}
+
+func (s *Server) handleGuestAction(w http.ResponseWriter, r *http.Request, a pve.Auth) {
+	kind, action := r.PathValue("kind"), r.PathValue("action")
+	vmid, err := strconv.Atoi(r.PathValue("vmid"))
+	if err != nil || (kind != "qemu" && kind != "lxc") || !slices.Contains(guestActions, action) {
+		writeErr(w, http.StatusBadRequest, "ação inválida")
+		return
+	}
+	res, err := s.resources(r.Context(), a)
+	if err != nil {
+		writePVEErr(w, err)
+		return
+	}
+	i := slices.IndexFunc(res, func(g pve.Resource) bool { return g.Type == kind && g.VMID == vmid })
+	if i < 0 {
+		writeErr(w, http.StatusNotFound, "guest não encontrado")
+		return
+	}
+	upid, err := s.pve.GuestAction(r.Context(), &a, res[i].Node, kind, vmid, action)
+	if err != nil {
+		writePVEErr(w, err)
+		return
+	}
+	s.cache.invalidate(a.User)
+	writeJSON(w, map[string]string{"upid": upid})
+}
+
+func (s *Server) handleFavorites(w http.ResponseWriter, r *http.Request, a pve.Auth) {
+	var body struct {
+		IDs []string `json:"ids"`
+	}
+	if err := readJSON(r, &body); err != nil {
+		writeErr(w, http.StatusBadRequest, "json inválido")
+		return
+	}
+	if len(body.IDs) > 50 {
+		body.IDs = body.IDs[:50]
+	}
+	if err := s.state.setFavorites(a.User, body.IDs); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, map[string]any{"favorites": s.state.favorites(a.User)})
+}
+
+// --- backup ---
+
+type backupStorage struct {
+	Storage string   `json:"storage"`
+	Type    string   `json:"type"`
+	Shared  bool     `json:"shared"`
+	Avail   int64    `json:"avail"`
+	Total   int64    `json:"total"`
+	Nodes   []string `json:"nodes"`
+}
+
+func (s *Server) handleBackupStorages(w http.ResponseWriter, r *http.Request, a pve.Auth) {
+	nodes, err := s.onlineNodes(r.Context(), a)
+	if err != nil {
+		writePVEErr(w, err)
+		return
+	}
+	byName := map[string]*backupStorage{}
+	var order []string
+	for _, n := range nodes {
+		list, err := s.pve.NodeStorage(r.Context(), &a, n, "backup")
+		if err != nil {
+			continue
+		}
+		for _, st := range list {
+			if !st.Active {
+				continue
+			}
+			b := byName[st.Storage]
+			if b == nil {
+				b = &backupStorage{Storage: st.Storage, Type: st.Type, Shared: bool(st.Shared), Avail: st.Avail, Total: st.Total}
+				byName[st.Storage] = b
+				order = append(order, st.Storage)
+			}
+			b.Nodes = append(b.Nodes, n)
+		}
+	}
+	out := []backupStorage{}
+	for _, name := range order {
+		out = append(out, *byName[name])
+	}
+	writeJSON(w, map[string]any{"storages": out, "nodes": nodes})
+}
+
+func (s *Server) handleBackup(w http.ResponseWriter, r *http.Request, a pve.Auth) {
+	var body struct {
+		Storage string `json:"storage"`
+		Mode    string `json:"mode"`
+	}
+	if err := readJSON(r, &body); err != nil || body.Storage == "" {
+		writeErr(w, http.StatusBadRequest, "escolha um storage")
+		return
+	}
+	if !slices.Contains([]string{"snapshot", "suspend", "stop"}, body.Mode) {
+		body.Mode = "snapshot"
+	}
+	nodes, err := s.onlineNodes(r.Context(), a)
+	if err != nil {
+		writePVEErr(w, err)
+		return
+	}
+	type result struct {
+		Node  string `json:"node"`
+		UPID  string `json:"upid,omitempty"`
+		Error string `json:"error,omitempty"`
+	}
+	out := []result{}
+	for _, n := range nodes {
+		upid, err := s.pve.Vzdump(r.Context(), &a, n, url.Values{
+			"all":      {"1"},
+			"storage":  {body.Storage},
+			"mode":     {body.Mode},
+			"compress": {"zstd"},
+		})
+		res := result{Node: n, UPID: upid}
+		if err != nil {
+			res.Error = err.Error()
+		}
+		out = append(out, res)
+	}
+	writeJSON(w, map[string]any{"tasks": out})
+}
