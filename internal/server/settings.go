@@ -7,8 +7,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"os"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -265,11 +263,10 @@ type updater struct {
 	latest  string
 	url     string
 	current string
-	reqPath string // arquivo que o mia-update.path (systemd, root) observa
 }
 
-func newUpdater(version, dataDir string) *updater {
-	return &updater{current: version, reqPath: filepath.Join(dataDir, "update-request")}
+func newUpdater(version string) *updater {
+	return &updater{current: version}
 }
 
 func (u *updater) check(ctx context.Context) (latest, link string) {
@@ -328,29 +325,14 @@ func newer(latest, current string) bool {
 	return false
 }
 
+// Só avisa que tem versão nova. Atualizar é pelo shell do Proxmox, rodando
+// o instalador: o painel nunca roda nada como root sozinho.
 func (s *Server) handleUpdateInfo(w http.ResponseWriter, r *http.Request, a pve.Auth) {
 	latest, link := s.updater.check(r.Context())
-	_, err := os.Stat("/etc/systemd/system/mia-update.path")
 	writeJSON(w, map[string]any{
-		"current":    s.cfg.Version,
-		"latest":     latest,
-		"url":        link,
-		"available":  newer(latest, s.cfg.Version),
-		"selfUpdate": err == nil && isRoot(a),
+		"current":   s.cfg.Version,
+		"latest":    latest,
+		"url":       link,
+		"available": newer(latest, s.cfg.Version),
 	})
-}
-
-func (s *Server) handleUpdateRun(w http.ResponseWriter, r *http.Request, a pve.Auth) {
-	if !requireRoot(w, a) {
-		return
-	}
-	if _, err := os.Stat("/etc/systemd/system/mia-update.path"); err != nil {
-		writeErr(w, http.StatusPreconditionFailed, "atualização pelo painel não está instalada; rode o instalador de novo")
-		return
-	}
-	if err := os.WriteFile(s.updater.reqPath, []byte(time.Now().Format(time.RFC3339)+"\n"), 0o640); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeJSON(w, map[string]bool{"ok": true})
 }

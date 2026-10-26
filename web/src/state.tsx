@@ -25,6 +25,9 @@ interface UI {
   showConsole: (id: string | null) => void;
   closeConsole: (id: string) => void;
   setConsoleStatus: (id: string, status: ConsoleSession["status"]) => void;
+  /** Área da página Console: com ela, os consoles aparecem embutidos ali em vez de em janela. */
+  consoleSlot: HTMLElement | null;
+  setConsoleSlot: (el: HTMLElement | null) => void;
   /** Diálogo de novo LXC; o valor é o nó sugerido. */
   newLxc: string | null;
   setNewLxc: (node: string | null) => void;
@@ -54,20 +57,27 @@ export function UIProvider({ children }: { children: ReactNode }) {
     showConsole(id);
   }, []);
   const closeConsole = useCallback((id: string) => {
-    setConsoles((c) => c.filter((x) => x.id !== id));
-    showConsole((a) => (a === id ? null : a));
+    setConsoles((c) => {
+      const i = c.findIndex((x) => x.id === id);
+      const rest = c.filter((x) => x.id !== id);
+      // Encerrar a aba aberta passa pra vizinha; a janela só some sem sessões.
+      showConsole((a) => (a === id ? (rest[Math.min(i, rest.length - 1)]?.id ?? null) : a));
+      return rest;
+    });
   }, []);
   const setConsoleStatus = useCallback((id: string, status: ConsoleSession["status"]) => {
     setConsoles((c) => c.map((x) => (x.id === id && x.status !== status ? { ...x, status } : x)));
   }, []);
+  const [consoleSlot, setConsoleSlot] = useState<HTMLElement | null>(null);
   const [newLxc, setNewLxc] = useState<string | null>(null);
   const [newVm, setNewVm] = useState<string | null>(null);
   const value = useMemo(
     () => ({
       node, setNode, guestId, openGuest, searchOpen, setSearchOpen, backupOpen, setBackupOpen, range, setRange,
-      consoles, activeConsole, openConsole, showConsole, closeConsole, setConsoleStatus, newLxc, setNewLxc, newVm, setNewVm,
+      consoles, activeConsole, openConsole, showConsole, closeConsole, setConsoleStatus, consoleSlot, setConsoleSlot,
+      newLxc, setNewLxc, newVm, setNewVm,
     }),
-    [node, guestId, searchOpen, backupOpen, range, consoles, activeConsole, openConsole, closeConsole, setConsoleStatus, newLxc, newVm],
+    [node, guestId, searchOpen, backupOpen, range, consoles, activeConsole, openConsole, closeConsole, setConsoleStatus, consoleSlot, newLxc, newVm],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

@@ -305,7 +305,7 @@ RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 [Install]
 WantedBy=multi-user.target
 EOF
-  write_update_units
+  remove_update_units
   create_token
   msg_ok "Configuração em ${BL}${ENV_FILE}${CL}"
 }
@@ -336,36 +336,19 @@ create_token() {
   fi
 }
 
-# Atualização pelo painel: o Mia (sem privilégios) só grava
-# /var/lib/mia/update-request; o systemd observa esse arquivo e roda este
-# instalador como root, com MIA_YES=1. Não dá pro Mia pedir outra coisa.
-write_update_units() {
-  cat >"$UPD_SVC" <<EOF
-[Unit]
-Description=Atualiza o Mia para a última release
-After=network-online.target
-
-[Service]
-Type=oneshot
-ExecStart=/bin/bash -c 'curl -fsSL https://raw.githubusercontent.com/${REPO}/main/install.sh | MIA_YES=1 bash -s update'
-EOF
-  cat >"$UPD_PATH" <<EOF
-[Unit]
-Description=Pedido de atualização do Mia vindo do painel
-
-[Path]
-PathChanged=${DATA}/update-request
-
-[Install]
-WantedBy=multi-user.target
-EOF
+# Versões antigas atualizavam pelo painel (mia-update.path rodando este
+# instalador como root). Saiu: o painel só avisa, quem atualiza é você no
+# shell. Aqui some com o que ficou de instalações anteriores.
+remove_update_units() {
+  [[ -e "$UPD_PATH" || -e "$UPD_SVC" ]] || return 0
+  run systemctl disable --now mia-update.path || true
+  rm -f "$UPD_SVC" "$UPD_PATH" "${DATA}/update-request"
 }
 
 start_service() {
   msg_info "Iniciando o serviço"
   run systemctl daemon-reload
   run systemctl enable mia
-  run systemctl enable --now mia-update.path
   run systemctl restart mia
   local i
   for i in $(seq 1 30); do

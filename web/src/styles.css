@@ -619,10 +619,8 @@ td .cell-bar.hot i { background: var(--hot); }
 .update button {
   height: 28px; border: 0; border-radius: 6px; background: var(--blue); color: #fff; font-size: 12px; font-weight: 500;
 }
-.update button:disabled { opacity: 0.7; }
 .update a { color: var(--side-ink-2); font-size: 11px; }
 .update-hint { color: var(--side-ink-2); font-size: 11px; }
-.update-err { color: #f87171; font-size: 11px; }
 .collapsed .update { display: none; }
 
 @media (max-width: 860px) {
@@ -810,7 +808,9 @@ td .cell-bar.hot i { background: var(--hot); }
 .console-actions .btn { background: #222428; border-color: #34363b; color: #e6e6e6; }
 .console-actions .btn.danger { color: #ffb4a0; }
 .console-head .close { margin-left: 0; }
-.console-warn { color: #ffcf9e; font-size: 12px; padding: 0 6px 8px; }
+.console-warn { color: #ffcf9e; font-size: 12px; padding: 0 6px 8px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.console-warn .btn { background: #222428; border-color: #34363b; color: #e6e6e6; }
+.console-warn .btn.danger { color: #ffb4a0; }
 .console-dock {
   position: fixed; right: 16px; bottom: 16px; z-index: 45; display: flex; flex-direction: column; gap: 6px; max-width: min(380px, calc(100vw - 32px));
 }
@@ -900,4 +900,40 @@ textarea.code { width: 100%; font-family: var(--mono); font-size: 12px; line-hei
   .dc-nav { display: none; }
   .dc-mobile { display: block; width: 100%; margin-bottom: 18px; }
   .sys-grid, .node-charts { grid-template-columns: 1fr; }
+}
+
+/* Vários consoles: abas, lado a lado, embutido na página Console */
+.console-tabs { display: flex; align-items: center; gap: 4px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.console-tab { display: flex; align-items: center; flex: none; max-width: 220px; border-radius: 8px; background: #1e2024; color: #a7abb3; }
+.console-tab.on { background: #2c2f35; color: #fff; }
+.console-tab-open { display: flex; align-items: center; gap: 7px; min-width: 0; background: none; border: 0; color: inherit; padding: 6px 4px 6px 10px; font-size: 13px; }
+.console-tab-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.console-tab-x { background: none; border: 0; color: #8d919a; padding: 6px 8px 6px 4px; display: grid; }
+.console-tab-x:hover { color: #fff; }
+.console-add { position: relative; flex: none; }
+.console-tab-new { width: 30px; height: 30px; border-radius: 8px; border: 0; background: none; color: #a7abb3; font-size: 18px; line-height: 1; }
+.console-tab-new:hover, .console-tab-new[aria-expanded="true"] { background: #26282c; color: #fff; }
+.console-picker {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 3; width: 260px; max-width: calc(100vw - 32px); max-height: 60vh; overflow-y: auto;
+  background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow-pop); padding: 6px;
+}
+.console-picker .side-title { margin-top: 10px; }
+.console-actions .btn.on { background: var(--blue); border-color: var(--blue); color: #fff; }
+.console-actions .btn { display: inline-flex; align-items: center; gap: 6px; }
+.console-panes { flex: 1; min-height: 0; display: flex; }
+.console-pane { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.console-panes.split { display: grid; gap: 8px; grid-auto-rows: minmax(200px, 1fr); overflow-y: auto; }
+.console-panes.split .console-pane { border-radius: 10px; overflow: hidden; box-shadow: 0 0 0 1px #2a2c31; }
+.console-panes.split .console-pane.on { box-shadow: 0 0 0 2px var(--blue); }
+.console-panes.split .term-wrap, .console-panes.split .vnc-wrap { border-radius: 0; }
+.pane-head { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: #1b1c20; color: #e6e6e6; font-size: 12px; min-width: 0; }
+.pane-head b { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pane-head .mono { margin-left: auto; color: #8d919a; font-size: 11px; white-space: nowrap; }
+.console-embed { position: fixed; z-index: 4; display: flex; }
+.console-embed .console-modal { height: 100%; max-width: none; margin: 0; border-radius: 12px; box-shadow: none; }
+
+@media (max-width: 860px) {
+  .console-panes.split { display: flex; }
+  .console-panes.split .console-pane:not(.on) { display: none; }
+  .console-actions .split-btn { display: none; }
 }

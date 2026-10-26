@@ -67,7 +67,7 @@ func New(cfg Config) (*Server, error) {
 		cache:    newCache(),
 		ts:       &tailscale{demo: cfg.Demo},
 		apps:     newAppStore(cfg.AppsURL, cfg.DataDir),
-		updater:  newUpdater(cfg.Version, cfg.DataDir),
+		updater:  newUpdater(cfg.Version),
 		prober:   newProber(),
 	}
 	srv.sched = &scheduler{s: srv, running: map[string]bool{}}
@@ -202,7 +202,6 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("PUT /api/settings/tailscale", s.authed(s.handleTailscaleKey))
 	mux.HandleFunc("POST /api/tailscale/command", s.authed(s.handleTailscaleCommand))
 	mux.HandleFunc("GET /api/update", s.authed(s.handleUpdateInfo))
-	mux.HandleFunc("POST /api/update", s.authed(s.handleUpdateRun))
 
 	s.fwdRoutes(mux, mustRoutes(pveRoutes()))
 	mux.HandleFunc("GET /api/shared-folders", s.authed(s.handleSharedFolders))

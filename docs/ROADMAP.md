@@ -113,7 +113,7 @@ Goal: everything the Proxmox VE web UI does, plus Mia-only extras on top.
 | Tailscale: gateway, per-app HTTPS address | ✅ |
 | Health checks + notifications bell | ✅ |
 | Firewall lockout guard | ✅ |
-| One-click self-update | ✅ |
+| New-version notice (update stays in the Proxmox shell) | ✅ |
 | "My apps" homepage (icons, status, local + Tailscale links) | ✅ |
 | Shared folders between LXCs (bind mounts with unprivileged ID mapping) | ✅ |
 | Easy GPU passthrough (iGPU to Jellyfin/Plex in one click) | ✅ |

@@ -453,7 +453,6 @@ export interface UpdateInfo {
   latest: string;
   url: string;
   available: boolean;
-  selfUpdate: boolean;
 }
 
 export class ApiError extends Error {
@@ -621,7 +620,6 @@ export const api = {
   setTailscaleKey: (authKey: string) => request<Settings>("PUT", "/api/settings/tailscale", { authKey }),
   tailscaleCommand: (body: Record<string, unknown>) => request<{ command: string }>("POST", "/api/tailscale/command", body),
   updateInfo: () => request<UpdateInfo>("GET", "/api/update"),
-  runUpdate: () => request<{ ok: boolean }>("POST", "/api/update"),
 };
 
 const enc = encodeURIComponent;

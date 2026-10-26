@@ -36,7 +36,7 @@ Everything the Proxmox web UI does (see [docs/ROADMAP.md](docs/ROADMAP.md) for t
 - **My apps**: your self-hosted apps as a home page, with icons, status and local + Tailscale links. **Update all** updates every LXC (or every community-scripts app) in one console run.
 - **Overview**: cluster load compared with the previous period, CPU distribution across guests, CPU and RAM trend with backup windows and which guests drove the peak.
 - **Nodes**: summary, charts, updates (the PVE upgrade terminal), repositories (one click to no-subscription), disks (SMART, wipe, GPT, create ZFS / LVM / LVM-thin / directory), DNS, hosts, time zone, Wake-on-LAN, notes, certificates (custom and ACME), syslog, subscription, bulk start/stop.
-- **Guests** (VM and LXC): power actions incl. suspend, hibernate and reset; console (xterm.js or noVNC); charts; full hardware (CPU type, balloon, BIOS, machine, display, disks and mount points, NICs, USB, PCI, serial, device passthrough); network and DNS; options; snapshots; backups and restore; task history; firewall; clone, template, migrate, delete. VMs also get **Cloud-Init** and the **QEMU monitor**.
+- **Guests** (VM and LXC): power actions incl. suspend, hibernate and reset; console (xterm.js or noVNC, several at once in tabs or side by side); charts; full hardware (CPU type, balloon, BIOS, machine, display, disks and mount points, NICs, USB, PCI, serial, device passthrough); network and DNS; options; snapshots; backups and restore; task history; firewall; clone, template, migrate, delete. VMs also get **Cloud-Init** and the **QEMU monitor**.
 - **New VM / LXC**: VM from an ISO (presets incl. Windows 11 with UEFI and TPM), **VM from a cloud image** (Debian/Ubuntu, ready in a minute with user, SSH key and network via Cloud-Init), **import OVA or ESXi VMs**, LXC from a template downloaded on the fly.
 - **Apps**: the [Proxmox VE Helper-Scripts](https://community-scripts.org) catalog (~700 apps). Installing runs the script in the node console so you watch it live and can answer its prompts. **Stacks** install a whole kit in one go (media, smart home, network, photos and documents, dev) with a shared folder between the apps and optional Tailscale addresses.
 - **Storage**: every storage with usage and content; upload with progress, download from URL, restore. **Shared folders**: one host folder mounted in several LXCs, with the unprivileged ID mapping handled for you.
@@ -46,7 +46,7 @@ Everything the Proxmox web UI does (see [docs/ROADMAP.md](docs/ROADMAP.md) for t
 - **Health**: one list of what needs attention (SMART and SSD wear, degraded ZFS, stopped services, pending updates, expiring certificates, storage filling up, nodes offline, guests with no backup), plus a notifications bell.
 - **Backups, firewall, tasks, network** (bridges, VLANs, pending diff with apply/revert), with a guard that warns before the datacenter firewall locks you out of Mia.
 - **VPN · Tailscale**: a one-click gateway LXC that routes your LAN, and per-app HTTPS addresses at `https://<name>.<tailnet>.ts.net`.
-- **Search** (`/` or `⌘K`), cluster backup (`⌘B`), light and dark themes, mobile layout, and one-click self-update.
+- **Search** (`/` or `⌘K`), cluster backup (`⌘B`), light and dark themes, mobile layout, and a notice when a new version is out (you update from the Proxmox shell).
 
 Things that run as root on the node (app installs, stacks, shared folders, GPU, Tailscale) go through the node console, so they need `root@pam` and you can read every command before and while it runs.
 
